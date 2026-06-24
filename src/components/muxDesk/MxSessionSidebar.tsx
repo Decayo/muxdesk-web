@@ -44,7 +44,7 @@ export function MxSessionSidebar() {
   return (
     <aside className="flex w-64 flex-col border-r border-border bg-panel">
       <div className="flex items-center justify-between border-b border-border p-3">
-        <span className="text-sm font-semibold text-fg">CC Trade Desk</span>
+        <span className="text-sm font-semibold text-fg">muxdesk</span>
         <button
           type="button"
           onClick={handleNew}
