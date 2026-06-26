@@ -13,6 +13,13 @@ function basename(path: string): string {
   return path.split(/[/\\]/).filter(Boolean).pop() ?? path
 }
 
+/** Compact token count for the context segment: 945000 -> "945k", 1000000 -> "1M". */
+export function fmtCtx(n: number): string {
+  if (n >= 1_000_000) return `${+(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M`
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`
+  return String(n)
+}
+
 function Sep() {
   return <span className="text-border-strong">│</span>
 }
@@ -28,6 +35,7 @@ export function MxStatusBar({
   state,
   cwd,
   tokenTotal,
+  context,
   gitBranch,
   gitDirty,
   shells,
@@ -37,10 +45,12 @@ export function MxStatusBar({
   state?: string
   cwd?: string | null
   tokenTotal?: number
+  context?: { peak: number; window: number; pct: number } | null
   gitBranch?: string | null
   gitDirty?: number
   shells?: number
 }) {
+  const ctxCls = context ? (context.pct >= 90 ? 'text-danger' : context.pct >= 70 ? 'text-warn' : 'text-muted') : ''
   return (
     <div className="flex min-w-0 items-center gap-2 overflow-hidden font-mono text-[11px] text-muted">
       {model && <span className="text-fg">{prettyModel(model)}</span>}
@@ -51,6 +61,14 @@ export function MxStatusBar({
             {mode ? <span className="text-subtle">{mode}</span> : null}
             {mode && state ? ' · ' : ''}
             {state ? <span className={state === 'READY' ? 'text-ok' : 'text-accent'}>{state}</span> : null}
+          </span>
+        </>
+      )}
+      {context && (
+        <>
+          <Sep />
+          <span className={ctxCls} title="peak context usage this session">
+            ctx {context.pct}% <span className="tabular-nums">{fmtCtx(context.peak)}/{fmtCtx(context.window)}</span>
           </span>
         </>
       )}

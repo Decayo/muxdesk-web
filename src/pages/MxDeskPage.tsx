@@ -210,6 +210,7 @@ export function MxDeskPage() {
           state={state}
           cwd={active.workspace_path}
           tokenTotal={tokenTotal}
+          context={sessionStatus?.context}
           gitBranch={sessionStatus?.git.branch}
           gitDirty={sessionStatus?.git.dirty}
           shells={sessionStatus?.shells}

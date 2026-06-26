@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { prettyModel } from './MxStatusBar'
+import { fmtCtx, prettyModel } from './MxStatusBar'
 
 describe('prettyModel', () => {
   it('formats known model ids with the 1M context flag', () => {
@@ -14,5 +14,15 @@ describe('prettyModel', () => {
   it('degrades gracefully for unknown ids', () => {
     expect(prettyModel('claude-haiku-4-5-20251001')).toBe('Haiku 4.5')
     expect(prettyModel('some-future-model')).toBe('some-future-model')
+  })
+})
+
+describe('fmtCtx', () => {
+  it('formats k / M compactly', () => {
+    expect(fmtCtx(945_000)).toBe('945k')
+    expect(fmtCtx(200_000)).toBe('200k')
+    expect(fmtCtx(1_000_000)).toBe('1M')
+    expect(fmtCtx(1_500_000)).toBe('1.5M')
+    expect(fmtCtx(512)).toBe('512')
   })
 })

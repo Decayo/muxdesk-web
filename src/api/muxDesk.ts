@@ -54,6 +54,7 @@ export function listSessionCommands(id: string): Promise<{ items: CommandItem[] 
 export interface SessionStatus {
   git: { branch: string | null; dirty: number }
   shells: number
+  context: { peak: number; window: number; pct: number } | null
 }
 
 /** Live status-bar segments (git branch/dirty + open shells) for a session. */
