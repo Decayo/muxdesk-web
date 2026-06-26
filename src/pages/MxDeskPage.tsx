@@ -22,6 +22,7 @@ import { MxChatInput } from '@/components/muxDesk/MxChatInput'
 import { MxEventStream } from '@/components/muxDesk/MxEventStream'
 import { MxTerminal } from '@/components/muxDesk/MxTerminal'
 import { MxModelPicker } from '@/components/muxDesk/MxModelPicker'
+import { MxStatusBar } from '@/components/muxDesk/MxStatusBar'
 import { MxHarnessBar } from '@/components/muxDesk/MxHarnessBar'
 import { cn } from '@/lib/utils'
 
@@ -33,6 +34,7 @@ export function MxDeskPage() {
 
   const eventsBySession = useTranscriptStore((s) => s.eventsBySession)
   const state = useTranscriptStore((s) => s.state)
+  const mode = useTranscriptStore((s) => s.mode)
   const blocked = useTranscriptStore((s) => s.blocked)
 
   const { send } = useMxDeskStream(activeId)
@@ -43,6 +45,10 @@ export function MxDeskPage() {
 
   const active = sessions.find((s) => s.app_session_id === activeId) ?? null
   const events = activeId ? eventsBySession[activeId] ?? [] : []
+  const tokenTotal = useMemo(
+    () => events.reduce((sum, e) => sum + (e.event_type === 'assistant_message' ? Number(e.payload.output_tokens) || 0 : 0), 0),
+    [events],
+  )
 
   // Fetch Task subagents spawned by this session (name->stats), so Agent tree cards in the conversation show tool uses / tokens / status
   const [subagents, setSubagents] = useState<SubagentNode[]>([])
@@ -171,9 +177,16 @@ export function MxDeskPage() {
         )}
       </div>
 
-      <div className="flex items-center gap-2 border-t border-border bg-panel px-3 pt-2 text-xs text-muted">
+      <div className="flex items-center gap-2 border-t border-border bg-panel px-3 py-1.5">
         <MxModelPicker value={selectedModel} onChange={handleModelChange} />
-        <span>Current model: {actualModel || active.model || 'Starting…'}</span>
+        <div className="h-3.5 w-px shrink-0 bg-border-strong" />
+        <MxStatusBar
+          model={actualModel || active.model}
+          mode={mode}
+          state={state}
+          cwd={active.workspace_path}
+          tokenTotal={tokenTotal}
+        />
       </div>
       <StatusHint state={state} blocked={blocked} onTerminal={() => setTab('terminal')} />
       {activeId && ask?.active && ask.reqid ? (
