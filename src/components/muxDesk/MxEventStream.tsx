@@ -23,6 +23,22 @@ export function MxEventStream({ events: rawEvents, state, pendingText, sessionId
   const viewMode = useUiStore((s) => s.viewMode)
   const events = applyViewMode(dedupeEvents(stripCcAskNoise(rawEvents)), viewMode)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  // "Stick to bottom" intent. Only a deliberate scroll-up clears it; programmatic scrolls (which only
+  // move downward) and async content growth never do — so following survives reflow during load.
+  const stickRef = useRef(true)
+  const lastTopRef = useRef(0)
+
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const top = el.scrollTop
+    const dist = el.scrollHeight - top - el.clientHeight
+    if (top < lastTopRef.current - 4) stickRef.current = false // user scrolled up -> stop following
+    else if (dist < 160) stickRef.current = true // back near the bottom -> resume following
+    lastTopRef.current = top
+  }, [])
 
   // Live preview polling moved up so live.text is included in scroll deps (auto-scroll to bottom during streaming)
   const [live, setLive] = useState<{ working: boolean; text: string }>({ working: false, text: '' })
@@ -44,10 +60,26 @@ export function MxEventStream({ events: rawEvents, state, pendingText, sessionId
     }
   }, [sessionId])
 
-  // Auto-scroll to bottom: scroll on event count / optimistic input / state / live preview text changes (live.text grows during streaming -> keeps scrolling)
+  // Switching sessions: always jump to the bottom and resume following.
   useEffect(() => {
+    stickRef.current = true
+    lastTopRef.current = 0
     bottomRef.current?.scrollIntoView({ behavior: 'auto' })
-  }, [events.length, pendingText, state, live.text])
+  }, [sessionId])
+
+  // Follow growing content (new events, streaming, async media/highlight reflow) — but only while the
+  // user is parked near the bottom, so reading scrollback isn't yanked away. A ResizeObserver on the
+  // content catches height changes that land after the initial render (shiki, iframes), unlike a
+  // one-shot effect. Mirrors t3code's maintainScrollAtEnd.
+  useEffect(() => {
+    const content = contentRef.current
+    if (!content) return
+    const ro = new ResizeObserver(() => {
+      if (stickRef.current) bottomRef.current?.scrollIntoView({ behavior: 'auto' })
+    })
+    ro.observe(content)
+    return () => ro.disconnect()
+  }, [])
 
   const busy = state === 'SUBMITTING' || state === 'ASSISTANT_STREAMING' || state === 'RUNNING_TOOL'
   // In-turn (inTurn): from submission until "assistant message persisted / turn ended / interrupted" -> show live preview throughout.
@@ -69,23 +101,25 @@ export function MxEventStream({ events: rawEvents, state, pendingText, sessionId
   const inTurn = Boolean(pendingText) || lastUserIdx > lastDoneIdx
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-3">
-      {events.length === 0 && !pendingText && !busy ? (
-        <div className="mt-12 text-center text-sm text-muted">No events yet. Send a message to start the conversation.</div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {buildRenderItems(events).map((item) =>
-            item.kind === 'tools' ? (
-              <WorkLogItem key={item.key} entries={item.entries} />
-            ) : (
-              <EventRow key={item.key} event={item.event} agentsByName={agentsByName} />
-            ),
-          )}
-          {pendingText && <Bubble text={pendingText} pending />}
-          <LivePreview live={live} active={inTurn} />
-        </div>
-      )}
-      <div ref={bottomRef} />
+    <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-3">
+      <div ref={contentRef}>
+        {events.length === 0 && !pendingText && !busy ? (
+          <div className="mt-12 text-center text-sm text-muted">No events yet. Send a message to start the conversation.</div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {buildRenderItems(events).map((item) =>
+              item.kind === 'tools' ? (
+                <WorkLogItem key={item.key} entries={item.entries} />
+              ) : (
+                <EventRow key={item.key} event={item.event} agentsByName={agentsByName} />
+              ),
+            )}
+            {pendingText && <Bubble text={pendingText} pending />}
+            <LivePreview live={live} active={inTurn} />
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
     </div>
   )
 }
