@@ -5,6 +5,7 @@ import { fmtClock, fmtTokens } from '@/lib/format'
 import { Mermaid } from './Mermaid'
 import { CodeBlock } from './CodeBlock'
 import { CodeDiff } from './CodeDiff'
+import { SandboxedFrame } from './SandboxedFrame'
 
 /** Extract the fenced language + source from a markdown <pre> child node (null if it isn't a code block). */
 function extractCode(children: ReactNode): { lang: string; code: string } | null {
@@ -37,6 +38,7 @@ const components: Components = {
     const info = extractCode(children)
     if (info?.lang === 'mermaid') return <Mermaid code={info.code} />
     if (info?.lang === 'diff') return <CodeDiff patch={info.code} />
+    if (info?.lang === 'html' || info?.lang === 'canvas') return <SandboxedFrame code={info.code} kind={info.lang} />
     if (info) return <CodeBlock code={info.code} lang={info.lang} />
     return (
       <pre
