@@ -6,6 +6,7 @@ import { ccImageUrl, getSessionLive, type SubagentNode } from '@/api/nativeAgent
 import { MxMessage } from './MxMessage'
 import { ImageLightbox } from './ImageLightbox'
 import { WorkLog, ToolEntryRow } from './WorkLog'
+import { ErrorBoundary } from './ErrorBoundary'
 import { applyViewMode, buildRenderItems, ccAskQuestion, dedupeEvents, stripCcAskNoise, type ToolEntry } from '@/lib/eventGroups'
 import { useUiStore } from '@/stores/uiStore'
 
@@ -110,13 +111,15 @@ export function MxEventStream({ events: rawEvents, state, pendingText, sessionId
           <div className="mt-12 text-center text-sm text-muted">No events yet. Send a message to start the conversation.</div>
         ) : (
           <div className="flex flex-col gap-2">
-            {renderItems.map((item) =>
-              item.kind === 'tools' ? (
-                <WorkLogItem key={item.key} entries={item.entries} />
-              ) : (
-                <EventRow key={item.key} event={item.event} agentsByName={agentsByName} />
-              ),
-            )}
+            {renderItems.map((item) => (
+              <ErrorBoundary key={item.key}>
+                {item.kind === 'tools' ? (
+                  <WorkLogItem entries={item.entries} />
+                ) : (
+                  <EventRow event={item.event} agentsByName={agentsByName} />
+                )}
+              </ErrorBoundary>
+            ))}
             {pendingText && <Bubble text={pendingText} pending />}
             <LivePreview live={live} active={inTurn} />
           </div>
