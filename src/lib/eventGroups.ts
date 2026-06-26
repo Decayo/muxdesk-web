@@ -99,6 +99,15 @@ export function eventSig(e: MxEvent): string {
   }
 }
 
+/**
+ * Apply the conversation view mode. 'focus' drops internal `assistant_thinking` blocks
+ * (results-only view); 'full' keeps everything. Pure — both stream and tests use it.
+ */
+export function applyViewMode(events: MxEvent[], mode: 'full' | 'focus'): MxEvent[] {
+  if (mode === 'full') return events
+  return events.filter((e) => e.event_type !== 'assistant_thinking')
+}
+
 /** Drop logical-duplicate events (keep first) so re-emitted transcripts don't double-render. */
 export function dedupeEvents(events: MxEvent[]): MxEvent[] {
   const seen = new Set<string>()

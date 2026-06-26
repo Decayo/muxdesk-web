@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { MxEvent } from '@/types/muxDesk'
 import {
+  applyViewMode,
   buildRenderItems,
   ccAskQuestion,
   dedupeEvents,
@@ -84,6 +85,21 @@ describe('stripCcAskNoise', () => {
     const out = stripCcAskNoise(events)
     expect(out.find((e) => e.payload.tool_use_id === 'a1')).toBeUndefined()
     expect(out.filter((e) => e.payload.tool_use_id === 'b1')).toHaveLength(2)
+  })
+})
+
+describe('applyViewMode', () => {
+  const events = [
+    ev('user_message', { text: 'hi' }),
+    ev('assistant_thinking', { text: 'hmm' }),
+    ev('assistant_message', { text: 'done' }),
+  ]
+  it('full keeps everything (same reference)', () => {
+    expect(applyViewMode(events, 'full')).toBe(events)
+  })
+  it('focus drops assistant_thinking', () => {
+    const out = applyViewMode(events, 'focus')
+    expect(out.map((e) => e.event_type)).toEqual(['user_message', 'assistant_message'])
   })
 })
 

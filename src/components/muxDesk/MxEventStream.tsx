@@ -6,7 +6,8 @@ import { ccImageUrl, getSessionLive, type SubagentNode } from '@/api/nativeAgent
 import { MxMessage } from './MxMessage'
 import { ImageLightbox } from './ImageLightbox'
 import { WorkLog, ToolEntryRow } from './WorkLog'
-import { buildRenderItems, ccAskQuestion, dedupeEvents, stripCcAskNoise, type ToolEntry } from '@/lib/eventGroups'
+import { applyViewMode, buildRenderItems, ccAskQuestion, dedupeEvents, stripCcAskNoise, type ToolEntry } from '@/lib/eventGroups'
+import { useUiStore } from '@/stores/uiStore'
 
 interface Props {
   events: MxEvent[]
@@ -19,7 +20,8 @@ interface Props {
 }
 
 export function MxEventStream({ events: rawEvents, state, pendingText, sessionId, agentsByName }: Props) {
-  const events = dedupeEvents(stripCcAskNoise(rawEvents))
+  const viewMode = useUiStore((s) => s.viewMode)
+  const events = applyViewMode(dedupeEvents(stripCcAskNoise(rawEvents)), viewMode)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   // Live preview polling moved up so live.text is included in scroll deps (auto-scroll to bottom during streaming)

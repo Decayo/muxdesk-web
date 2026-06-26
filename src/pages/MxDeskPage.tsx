@@ -15,6 +15,7 @@ import {
 import { AskUserQuestionCard, type AskQuestion } from '@/components/muxDesk/AskUserQuestionCard'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useTranscriptStore } from '@/stores/transcriptStore'
+import { useUiStore } from '@/stores/uiStore'
 import { useMxDeskStream } from '@/hooks/useMxDeskStream'
 import { MxStateBadge } from '@/components/muxDesk/MxStateBadge'
 import { MxChatInput } from '@/components/muxDesk/MxChatInput'
@@ -157,6 +158,7 @@ export function MxDeskPage() {
         <TabButton active={tab === 'terminal'} onClick={() => setTab('terminal')}>
           Terminal
         </TabButton>
+        {tab === 'chat' && <ViewModeToggle />}
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -330,5 +332,29 @@ function TabButton({
     >
       {children}
     </button>
+  )
+}
+
+/** Focus/Full segmented toggle: 'focus' hides internal thinking (results-only), 'full' shows everything. */
+function ViewModeToggle() {
+  const viewMode = useUiStore((s) => s.viewMode)
+  const setViewMode = useUiStore((s) => s.setViewMode)
+  return (
+    <div className="ml-auto flex items-center gap-0.5 rounded-md border border-border/60 p-0.5 text-[11px]">
+      {(['focus', 'full'] as const).map((mode) => (
+        <button
+          key={mode}
+          type="button"
+          onClick={() => setViewMode(mode)}
+          title={mode === 'focus' ? 'Results only — hide thinking' : 'Show every event'}
+          className={cn(
+            'rounded px-2 py-0.5 capitalize',
+            viewMode === mode ? 'bg-panel-2 text-fg' : 'text-subtle hover:text-fg',
+          )}
+        >
+          {mode}
+        </button>
+      ))}
+    </div>
   )
 }
