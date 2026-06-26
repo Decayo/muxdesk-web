@@ -1,4 +1,4 @@
-import { isValidElement, type ReactNode } from 'react'
+import { isValidElement, memo, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { fmtClock, fmtTokens } from '@/lib/format'
@@ -62,7 +62,22 @@ const components: Components = {
   hr: () => <hr className="my-3 border-border/60" />,
 }
 
-export function MxMessage({ text, ts, tokens, model }: { text: string; ts?: number; tokens?: number; model?: string }) {
+/**
+ * Memoized: assistant messages re-parse markdown on every render, but the conversation re-renders on
+ * each poll (live preview 700ms, menu 1.5s, subagents 3s). Shallow primitive props mean settled
+ * messages skip the re-parse entirely.
+ */
+export const MxMessage = memo(function MxMessage({
+  text,
+  ts,
+  tokens,
+  model,
+}: {
+  text: string
+  ts?: number
+  tokens?: number
+  model?: string
+}) {
   return (
     <div className="flex flex-col items-start">
       <div className="max-w-[94%] rounded-lg bg-panel-2/70 px-3.5 py-2.5 text-[13.5px] text-fg">
@@ -77,4 +92,4 @@ export function MxMessage({ text, ts, tokens, model }: { text: string; ts?: numb
       </div>
     </div>
   )
-}
+})

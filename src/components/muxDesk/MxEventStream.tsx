@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { fmtClock, fmtTokens } from '@/lib/format'
 import type { MxEvent } from '@/types/muxDesk'
@@ -21,7 +21,10 @@ interface Props {
 
 export function MxEventStream({ events: rawEvents, state, pendingText, sessionId, agentsByName }: Props) {
   const viewMode = useUiStore((s) => s.viewMode)
-  const events = applyViewMode(dedupeEvents(stripCcAskNoise(rawEvents)), viewMode)
+  // Memoize the derive pipeline + grouping so the 700ms/1.5s/3s poll re-renders don't redo this work;
+  // recomputes only when the underlying events array or view mode actually change.
+  const events = useMemo(() => applyViewMode(dedupeEvents(stripCcAskNoise(rawEvents)), viewMode), [rawEvents, viewMode])
+  const renderItems = useMemo(() => buildRenderItems(events), [events])
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -107,7 +110,7 @@ export function MxEventStream({ events: rawEvents, state, pendingText, sessionId
           <div className="mt-12 text-center text-sm text-muted">No events yet. Send a message to start the conversation.</div>
         ) : (
           <div className="flex flex-col gap-2">
-            {buildRenderItems(events).map((item) =>
+            {renderItems.map((item) =>
               item.kind === 'tools' ? (
                 <WorkLogItem key={item.key} entries={item.entries} />
               ) : (
