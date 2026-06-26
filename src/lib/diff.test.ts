@@ -26,6 +26,11 @@ describe('countChangedLines', () => {
     const p = buildPatch('n.py', '', 'a = 1\nb = 2\nc = 3\n')
     expect(countChangedLines(p)).toEqual({ add: 3, del: 0 })
   })
+
+  it('counts hunk content that itself starts with +/- (e.g. ++i -> +++i)', () => {
+    const patch = ['@@ -1,2 +1,2 @@', ' ctx', '-- old marker', '+++i', ' tail'].join('\n')
+    expect(countChangedLines(patch)).toEqual({ add: 1, del: 1 })
+  })
 })
 
 describe('isRichPatch', () => {
@@ -43,6 +48,12 @@ describe('isRichPatch', () => {
 
   it('is false for a plain +/- block', () => {
     expect(isRichPatch('- old line\n+ new line')).toBe(false)
+  })
+
+  it('is not fooled by hunk content lines that look like headers', () => {
+    // a bare hunk whose content includes `--- ` / `+++ ` must NOT be treated as a real patch
+    const sneaky = ['@@ -1,2 +1,2 @@', '--- removed text', '+++ added text'].join('\n')
+    expect(isRichPatch(sneaky)).toBe(false)
   })
 })
 
