@@ -1,17 +1,8 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { buildPatch, countChangedLines } from '@/lib/diff'
+import type { ToolEntry } from '@/lib/eventGroups'
 import { CodeDiff } from './CodeDiff'
-
-/** One tool invocation (tool_start paired with its tool_end by tool_use_id). */
-export interface ToolEntry {
-  id: string
-  name: string
-  input: unknown
-  done: boolean
-  isError: boolean
-  content: unknown
-}
 
 const OUTPUT_MAX = 4000
 

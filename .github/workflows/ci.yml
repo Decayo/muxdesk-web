@@ -15,5 +15,7 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
+      - name: Unit tests
+        run: npm test
       - name: Type-check + build
         run: npm run build
