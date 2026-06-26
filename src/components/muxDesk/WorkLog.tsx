@@ -106,6 +106,7 @@ export function ToolEntryRow({ entry }: { entry: ToolEntry }) {
     <div className="text-xs">
       <button
         type="button"
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-2 py-0.5 text-left hover:bg-panel/40"
       >
@@ -167,6 +168,7 @@ export function WorkLog({ entries }: { entries: ToolEntry[] }) {
     <div className="ml-1 rounded-md border-l-2 border-border/60 bg-panel/20 py-1 pl-2 pr-2">
       <button
         type="button"
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-2 text-left text-xs"
       >

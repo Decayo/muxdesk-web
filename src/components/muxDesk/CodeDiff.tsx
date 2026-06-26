@@ -7,7 +7,8 @@ const INLINE_MAX = 20
 
 /** First file path referenced by a unified patch (for the collapsed summary header). */
 function patchFileLabel(patch: string): string {
-  const plus = patch.match(/^\+\+\+ [ab]?\/?(.+)$/m)?.[1]
+  // Only strip a real `a/` or `b/` prefix — not a leading "a"/"b" of an actual path (e.g. api/foo.ts).
+  const plus = patch.match(/^\+\+\+ (?:[ab]\/)?(.+)$/m)?.[1]
   if (plus && plus !== '/dev/null') return plus.trim()
   return patch.match(/^Index: (.+)$/m)?.[1]?.trim() ?? 'diff'
 }
@@ -31,7 +32,7 @@ export function CodeDiff({ patch, compact = false }: { patch: string; compact?: 
   return (
     <div className="my-2">
       <div className="flex items-center gap-2 rounded-md border border-border/60 bg-panel/40 px-2.5 py-1 text-xs">
-        <button type="button" onClick={() => setOpen((o) => !o)} className="flex items-center gap-1.5 text-fg hover:text-accent">
+        <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="flex items-center gap-1.5 text-fg hover:text-accent">
           <span className="text-subtle">{open ? '▾' : '▸'}</span>
           <span className="font-mono">{patchFileLabel(patch)}</span>
         </button>

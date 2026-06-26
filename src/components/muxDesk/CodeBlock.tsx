@@ -13,6 +13,7 @@ export function CodeBlock({ code, lang }: { code: string; lang: string }) {
 
   useEffect(() => {
     let alive = true
+    setHtml(null) // drop the previous block's highlight so stale markup can't show for new code
     highlightCode(code, lang)
       .then((h) => alive && setHtml(h))
       .catch(() => alive && setHtml(null))
@@ -24,11 +25,14 @@ export function CodeBlock({ code, lang }: { code: string; lang: string }) {
   useEffect(() => () => window.clearTimeout(copyTimer.current), [])
 
   const copy = () => {
-    navigator.clipboard?.writeText(code).then(() => {
-      setCopied(true)
-      window.clearTimeout(copyTimer.current)
-      copyTimer.current = window.setTimeout(() => setCopied(false), 1200)
-    })
+    navigator.clipboard
+      ?.writeText(code)
+      .then(() => {
+        setCopied(true)
+        window.clearTimeout(copyTimer.current)
+        copyTimer.current = window.setTimeout(() => setCopied(false), 1200)
+      })
+      .catch(() => undefined) // clipboard can reject (permissions / insecure context) — ignore
   }
 
   const label = lang && lang !== 'text' ? lang : 'text'

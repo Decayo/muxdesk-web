@@ -30,6 +30,20 @@ describe('eventSig', () => {
     expect(eventSig(ev('assistant_message', { uuid: 'u1', text: 'hi' }, 5))).toBe('assistant_message:u1:2:hi')
     expect(eventSig(ev('state_change', { state: 'READY' }, 7))).toBe('state_change:7')
   })
+
+  it('keys other rendered events (artifact/image/error) stably, not by seq', () => {
+    expect(eventSig(ev('artifact_written', { rel_path: 'a.py' }, 1))).toBe('aw:a.py')
+    expect(eventSig(ev('artifact_written', { rel_path: 'a.py' }, 99))).toBe('aw:a.py')
+    expect(eventSig(ev('error', { message: 'boom' }, 1))).toBe('error:boom')
+    expect(eventSig(ev('image', { uuid: 'u9', source: 'x' }, 1))).toBe('image:u9:x')
+  })
+})
+
+describe('dedupeEvents — rendered breakers survive reconnect (fresh seqs)', () => {
+  it('collapses a re-emitted artifact_written', () => {
+    const out = dedupeEvents([ev('artifact_written', { rel_path: 'f.py' }, 1), ev('artifact_written', { rel_path: 'f.py' }, 80)])
+    expect(out).toHaveLength(1)
+  })
 })
 
 describe('dedupeEvents', () => {

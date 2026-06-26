@@ -94,7 +94,15 @@ export function eventSig(e: MxEvent): string {
       const txt = typeof p.text === 'string' ? p.text : ''
       return `${e.event_type}:${p.uuid ?? ''}:${txt.length}:${txt.slice(0, 40)}`
     }
+    // Other *rendered* events also need stable keys, or a reconnect replay (fresh seqs) double-renders them.
+    case 'artifact_written':
+      return `aw:${p.rel_path ?? ''}`
+    case 'image':
+      return `image:${p.uuid ?? ''}:${typeof p.source === 'string' ? p.source : JSON.stringify(p.source ?? '')}`
+    case 'error':
+      return `error:${p.message ?? ''}`
     default:
+      // Invisible control events (state_change/raw_event/…) are skipped at render time, so seq is fine.
       return `${e.event_type}:${e.seq}`
   }
 }
