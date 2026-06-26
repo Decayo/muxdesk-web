@@ -5,6 +5,7 @@ import type { MxEvent } from '@/types/muxDesk'
 import { ccImageUrl, getSessionLive, type SubagentNode } from '@/api/nativeAgents'
 import { MxMessage } from './MxMessage'
 import { ImageLightbox } from './ImageLightbox'
+import { WorkLog, ToolEntryRow, type ToolEntry } from './WorkLog'
 
 interface Props {
   events: MxEvent[]
@@ -42,8 +43,109 @@ function stripCcAskNoise(events: MxEvent[]): MxEvent[] {
   })
 }
 
+/**
+ * Stable per-event identity for dedup. seq is an emission counter, NOT a stable id: a WS
+ * reconnect with after_seq=0 (e.g. StrictMode's second mount) re-emits the whole transcript
+ * with fresh seqs, so seq-based dedup misses logical duplicates. Tool calls are keyed by
+ * tool_use_id and messages by uuid+text (both stable across re-emits); control events keep
+ * their seq (they're skipped at render time, so never collapsed).
+ */
+function eventSig(e: MxEvent): string {
+  const p = e.payload
+  switch (e.event_type) {
+    case 'tool_start':
+      return `ts:${p.tool_use_id}`
+    case 'tool_end':
+      return `te:${p.tool_use_id}`
+    case 'assistant_message':
+    case 'user_message':
+    case 'assistant_thinking': {
+      const txt = typeof p.text === 'string' ? p.text : ''
+      return `${e.event_type}:${p.uuid ?? ''}:${txt.length}:${txt.slice(0, 40)}`
+    }
+    default:
+      return `${e.event_type}:${e.seq}`
+  }
+}
+
+/** Drop logical-duplicate events (keep first) so re-emitted transcripts don't double-render. */
+function dedupeEvents(events: MxEvent[]): MxEvent[] {
+  const seen = new Set<string>()
+  const out: MxEvent[] = []
+  for (const e of events) {
+    const sig = eventSig(e)
+    if (seen.has(sig)) continue
+    seen.add(sig)
+    out.push(e)
+  }
+  return out
+}
+
+/** Event types that produce visible output and therefore break a tool run (everything else is skipped). */
+const GROUP_BREAKERS = new Set(['user_message', 'assistant_message', 'assistant_thinking', 'artifact_written', 'image', 'error'])
+
+/** Render item: either a standalone event or a run of consecutive regular-tool calls (a WORK LOG group). */
+type RenderItem = { kind: 'event'; event: MxEvent; key: string } | { kind: 'tools'; entries: ToolEntry[]; key: string }
+
+/** A "regular" tool gets folded into WORK LOG; ask-questions / spawned agents stay standalone (own line / card). */
+function isRegularToolStart(name: string, input: unknown): boolean {
+  if (ccAskQuestion(name, input) !== undefined) return false
+  if (name === 'AskUserQuestion') return false
+  if ((name === 'Task' || name === 'Agent') && input && typeof input === 'object' && 'name' in input) return false
+  return true
+}
+
+/**
+ * Group regular tool calls into WORK LOG blocks. tool_start/tool_end are paired GLOBALLY by
+ * tool_use_id (first pass) so an event arriving between them — e.g. artifact_written — doesn't
+ * orphan the result. tool_end events are then ignored in the grouping pass (consumed via the map).
+ * A visible non-tool event (GROUP_BREAKERS) flushes the current run; invisible control events are
+ * skipped without flushing, so tools separated only by them still fold into one group.
+ */
+function buildRenderItems(events: MxEvent[]): RenderItem[] {
+  // First pass: index every tool_end by tool_use_id.
+  const ends = new Map<string, { isError: boolean; content: unknown }>()
+  for (const e of events) {
+    if (e.event_type !== 'tool_end') continue
+    const id = String(e.payload.tool_use_id ?? '')
+    if (id) ends.set(id, { isError: Boolean(e.payload.is_error), content: e.payload.content })
+  }
+
+  const items: RenderItem[] = []
+  let group: ToolEntry[] = []
+
+  const flush = () => {
+    if (group.length) {
+      items.push({ kind: 'tools', entries: group, key: `tools-${group[0].id}` })
+      group = []
+    }
+  }
+
+  for (const e of events) {
+    if (e.event_type === 'tool_start') {
+      const name = String(e.payload.tool_name ?? 'tool')
+      const input = e.payload.input
+      const id = String(e.payload.tool_use_id ?? `s${e.seq}`)
+      if (!isRegularToolStart(name, input)) {
+        flush()
+        items.push({ kind: 'event', event: e, key: `ev-${e.seq}` })
+        continue
+      }
+      const end = ends.get(id)
+      group.push({ id, name, input, done: !!end, isError: end?.isError ?? false, content: end?.content })
+      continue
+    }
+    // tool_end (paired above) + invisible control events are skipped WITHOUT flushing.
+    if (!GROUP_BREAKERS.has(e.event_type)) continue
+    flush()
+    items.push({ kind: 'event', event: e, key: `ev-${e.seq}` })
+  }
+  flush()
+  return items
+}
+
 export function MxEventStream({ events: rawEvents, state, pendingText, sessionId, agentsByName }: Props) {
-  const events = stripCcAskNoise(rawEvents)
+  const events = dedupeEvents(stripCcAskNoise(rawEvents))
   const bottomRef = useRef<HTMLDivElement>(null)
 
   // Live preview polling moved up so live.text is included in scroll deps (auto-scroll to bottom during streaming)
@@ -96,9 +198,13 @@ export function MxEventStream({ events: rawEvents, state, pendingText, sessionId
         <div className="mt-12 text-center text-sm text-muted">No events yet. Send a message to start the conversation.</div>
       ) : (
         <div className="flex flex-col gap-2">
-          {events.map((event, index) => (
-            <EventRow key={`${event.seq}-${index}`} event={event} agentsByName={agentsByName} />
-          ))}
+          {buildRenderItems(events).map((item) =>
+            item.kind === 'tools' ? (
+              <WorkLogItem key={item.key} entries={item.entries} />
+            ) : (
+              <EventRow key={item.key} event={item.event} agentsByName={agentsByName} />
+            ),
+          )}
           {pendingText && <Bubble text={pendingText} pending />}
           <LivePreview live={live} active={inTurn} />
         </div>
@@ -164,6 +270,12 @@ function EventRow({ event, agentsByName }: { event: MxEvent; agentsByName?: Reco
     default:
       return null
   }
+}
+
+/** A run of tool calls: WORK LOG collapsible block when ≥2, a single expandable row otherwise. */
+function WorkLogItem({ entries }: { entries: ToolEntry[] }) {
+  if (entries.length === 1) return <ToolEntryRow entry={entries[0]} />
+  return <WorkLog entries={entries} />
 }
 
 /** Spawned subagent tree card: ⚙ name, type, desc -- N tools, ~Xk tok, status (synced via hook). */
