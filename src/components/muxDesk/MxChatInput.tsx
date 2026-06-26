@@ -1,6 +1,7 @@
-import { useCallback, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { uploadSessionImage } from '@/api/nativeAgents'
-import { matchCommands, slashQuery, type SlashCommand } from '@/config/slashCommands'
+import { listSessionCommands } from '@/api/muxDesk'
+import { matchCommands, mergeCommands, SLASH_COMMANDS, slashQuery, type SlashCommand } from '@/config/slashCommands'
 import { ImageLightbox } from './ImageLightbox'
 
 interface Props {
@@ -41,8 +42,23 @@ export function MxChatInput({ sessionId, disabled, busy, onSend, onStop }: Props
   // Slash-command palette: open when the whole input is a `/cmd` being typed (and not dismissed via Esc).
   const [cmdSel, setCmdSel] = useState(0)
   const [cmdDismissed, setCmdDismissed] = useState(false)
+  // Built-in commands + the session's discovered custom commands/skills (graceful fallback to built-ins).
+  const [commands, setCommands] = useState<SlashCommand[]>(SLASH_COMMANDS)
+  useEffect(() => {
+    if (!sessionId) {
+      setCommands(SLASH_COMMANDS)
+      return
+    }
+    let alive = true
+    listSessionCommands(sessionId)
+      .then((r) => alive && setCommands(mergeCommands(r.items)))
+      .catch(() => alive && setCommands(SLASH_COMMANDS)) // endpoint absent/older backend -> built-ins only
+    return () => {
+      alive = false
+    }
+  }, [sessionId])
   const query = slashQuery(text)
-  const candidates = query !== null ? matchCommands(query) : []
+  const candidates = query !== null ? matchCommands(query, commands) : []
   const paletteOpen = query !== null && !cmdDismissed && candidates.length > 0
   const sel = Math.min(cmdSel, Math.max(0, candidates.length - 1))
 
@@ -187,7 +203,10 @@ export function MxChatInput({ sessionId, disabled, busy, onSend, onStop }: Props
                   className={`flex w-full items-baseline gap-2 px-3 py-1 text-left text-sm ${i === sel ? 'bg-accent/20 text-fg' : 'text-muted'}`}
                 >
                   <span className="font-mono text-accent">/{cmd.name}</span>
-                  <span className="truncate text-xs text-subtle">{cmd.hint}</span>
+                  <span className="min-w-0 flex-1 truncate text-xs text-subtle">{cmd.hint}</span>
+                  {cmd.source && cmd.source !== 'builtin' && (
+                    <span className="shrink-0 rounded bg-panel px-1 text-[10px] text-subtle">{cmd.source}</span>
+                  )}
                 </button>
               ))}
             </div>

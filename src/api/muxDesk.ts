@@ -39,6 +39,18 @@ export function listEvents(id: string, afterSeq = 0): Promise<{ items: MxEvent[]
   return request<{ items: MxEvent[] }>(`/muxdesk/sessions/${id}/events?after_seq=${afterSeq}`)
 }
 
+export interface CommandItem {
+  name: string
+  hint: string
+  source: 'command' | 'skill'
+  scope: 'user' | 'project'
+}
+
+/** Custom slash commands/skills for a session (user ~/.claude + project workspace). */
+export function listSessionCommands(id: string): Promise<{ items: CommandItem[] }> {
+  return request<{ items: CommandItem[] }>(`/muxdesk/sessions/${id}/commands`)
+}
+
 /** One runtime dependency check (tmux / claude / login / python). */
 export interface PreflightCheck {
   name: string

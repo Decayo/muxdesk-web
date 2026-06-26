@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { matchCommands, slashQuery, SLASH_COMMANDS } from './slashCommands'
+import { matchCommands, mergeCommands, slashQuery, SLASH_COMMANDS } from './slashCommands'
 
 describe('slashQuery', () => {
   it('returns the query for a lone slash command being typed', () => {
@@ -28,5 +28,24 @@ describe('matchCommands', () => {
 
   it('no match returns empty', () => {
     expect(matchCommands('zzz')).toEqual([])
+  })
+
+  it('built-ins are tagged source=builtin', () => {
+    expect(SLASH_COMMANDS.every((c) => c.source === 'builtin')).toBe(true)
+  })
+})
+
+describe('mergeCommands', () => {
+  it('appends custom commands after built-ins', () => {
+    const merged = mergeCommands([{ name: 'deploy', hint: 'ship it', source: 'command' }])
+    expect(merged).toHaveLength(SLASH_COMMANDS.length + 1)
+    expect(merged.at(-1)).toEqual({ name: 'deploy', hint: 'ship it', source: 'command' })
+  })
+
+  it('drops a custom entry whose name collides with a built-in', () => {
+    const merged = mergeCommands([{ name: 'model', hint: 'custom model', source: 'command' }])
+    expect(merged).toHaveLength(SLASH_COMMANDS.length)
+    expect(merged.filter((c) => c.name === 'model')).toHaveLength(1)
+    expect(merged.find((c) => c.name === 'model')?.source).toBe('builtin')
   })
 })

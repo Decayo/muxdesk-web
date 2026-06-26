@@ -1,6 +1,8 @@
 export interface SlashCommand {
   name: string
   hint: string
+  /** 'builtin' = native claude command; 'command'/'skill' = the user's own (from the backend). */
+  source?: 'builtin' | 'command' | 'skill'
 }
 
 /**
@@ -24,7 +26,13 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'status', hint: 'show system status' },
   { name: 'vim', hint: 'toggle vim editing mode' },
   { name: 'help', hint: 'list available commands' },
-]
+].map((c) => ({ ...c, source: 'builtin' as const }))
+
+/** Merge the user's discovered commands after the built-ins, dropping names already built in. */
+export function mergeCommands(custom: SlashCommand[]): SlashCommand[] {
+  const builtinNames = new Set(SLASH_COMMANDS.map((c) => c.name))
+  return [...SLASH_COMMANDS, ...custom.filter((c) => !builtinNames.has(c.name))]
+}
 
 /** When the input is exactly a slash command being typed (`/mod`), return the query after `/`; else null. */
 export function slashQuery(text: string): string | null {
@@ -32,8 +40,8 @@ export function slashQuery(text: string): string | null {
   return m ? m[1] : null
 }
 
-/** Candidates whose name starts with the query (case-insensitive). */
-export function matchCommands(query: string): SlashCommand[] {
+/** Candidates whose name starts with the query (case-insensitive), from the given list. */
+export function matchCommands(query: string, commands: SlashCommand[] = SLASH_COMMANDS): SlashCommand[] {
   const q = query.toLowerCase()
-  return SLASH_COMMANDS.filter((c) => c.name.startsWith(q))
+  return commands.filter((c) => c.name.startsWith(q))
 }
