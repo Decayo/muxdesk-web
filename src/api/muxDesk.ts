@@ -51,6 +51,16 @@ export function listSessionCommands(id: string): Promise<{ items: CommandItem[] 
   return request<{ items: CommandItem[] }>(`/muxdesk/sessions/${id}/commands`)
 }
 
+export interface SessionStatus {
+  git: { branch: string | null; dirty: number }
+  shells: number
+}
+
+/** Live status-bar segments (git branch/dirty + open shells) for a session. */
+export function getSessionStatus(id: string): Promise<SessionStatus> {
+  return request<SessionStatus>(`/muxdesk/sessions/${id}/status`)
+}
+
 /** One runtime dependency check (tmux / claude / login / python). */
 export interface PreflightCheck {
   name: string

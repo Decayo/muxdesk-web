@@ -23,6 +23,7 @@ import { MxEventStream } from '@/components/muxDesk/MxEventStream'
 import { MxTerminal } from '@/components/muxDesk/MxTerminal'
 import { MxModelPicker } from '@/components/muxDesk/MxModelPicker'
 import { MxStatusBar } from '@/components/muxDesk/MxStatusBar'
+import { getSessionStatus, type SessionStatus } from '@/api/muxDesk'
 import { dedupeEvents } from '@/lib/eventGroups'
 import { MxHarnessBar } from '@/components/muxDesk/MxHarnessBar'
 import { cn } from '@/lib/utils'
@@ -77,6 +78,26 @@ export function MxDeskPage() {
     () => Object.fromEntries(subagents.map((s) => [s.name, s])) as Record<string, SubagentNode>,
     [subagents],
   )
+
+  // Live status-bar segments (git branch/dirty + shells); polled, graceful when the endpoint is absent.
+  const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null)
+  useEffect(() => {
+    if (!activeId) {
+      setSessionStatus(null)
+      return
+    }
+    let alive = true
+    const load = () =>
+      getSessionStatus(activeId)
+        .then((s) => alive && setSessionStatus(s))
+        .catch(() => alive && setSessionStatus(null))
+    load()
+    const id = window.setInterval(load, 5000)
+    return () => {
+      alive = false
+      window.clearInterval(id)
+    }
+  }, [activeId])
 
   // Detect claude TUI interactive menus (/model, AskUserQuestion..., not written to jsonl) -> show clickable options below the conversation
   const [menu, setMenu] = useState<SessionMenu | null>(null)
@@ -189,6 +210,9 @@ export function MxDeskPage() {
           state={state}
           cwd={active.workspace_path}
           tokenTotal={tokenTotal}
+          gitBranch={sessionStatus?.git.branch}
+          gitDirty={sessionStatus?.git.dirty}
+          shells={sessionStatus?.shells}
         />
       </div>
       <StatusHint state={state} blocked={blocked} onTerminal={() => setTab('terminal')} />

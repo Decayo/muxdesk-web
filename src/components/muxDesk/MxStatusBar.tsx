@@ -28,12 +28,18 @@ export function MxStatusBar({
   state,
   cwd,
   tokenTotal,
+  gitBranch,
+  gitDirty,
+  shells,
 }: {
   model?: string | null
   mode?: string
   state?: string
   cwd?: string | null
   tokenTotal?: number
+  gitBranch?: string | null
+  gitDirty?: number
+  shells?: number
 }) {
   return (
     <div className="flex min-w-0 items-center gap-2 overflow-hidden font-mono text-[11px] text-muted">
@@ -52,6 +58,23 @@ export function MxStatusBar({
         <>
           <Sep />
           <span title={cwd}>📁 {basename(cwd)}</span>
+        </>
+      )}
+      {gitBranch && (
+        <>
+          <Sep />
+          <span title="git branch · uncommitted changes">
+            ⎇ {gitBranch}
+            {gitDirty ? <span className="text-warn">~{gitDirty}</span> : null}
+          </span>
+        </>
+      )}
+      {shells != null && shells > 0 && (
+        <>
+          <Sep />
+          <span className="tabular-nums" title="open shells (tmux panes)">
+            ⌨ {shells}
+          </span>
         </>
       )}
       {tokenTotal != null && tokenTotal > 0 && (
