@@ -32,7 +32,8 @@ describe('eventSig', () => {
   })
 
   it('keys other rendered events (artifact/image/error) stably, not by seq', () => {
-    expect(eventSig(ev('artifact_written', { rel_path: 'a.py' }, 1))).toBe('aw:a.py')
+    // prefers tool_use_id, falls back to rel_path
+    expect(eventSig(ev('artifact_written', { tool_use_id: 't1', rel_path: 'a.py' }, 1))).toBe('aw:t1')
     expect(eventSig(ev('artifact_written', { rel_path: 'a.py' }, 99))).toBe('aw:a.py')
     expect(eventSig(ev('error', { message: 'boom' }, 1))).toBe('error:boom')
     expect(eventSig(ev('image', { uuid: 'u9', source: 'x' }, 1))).toBe('image:u9:x')
@@ -40,9 +41,20 @@ describe('eventSig', () => {
 })
 
 describe('dedupeEvents — rendered breakers survive reconnect (fresh seqs)', () => {
-  it('collapses a re-emitted artifact_written', () => {
-    const out = dedupeEvents([ev('artifact_written', { rel_path: 'f.py' }, 1), ev('artifact_written', { rel_path: 'f.py' }, 80)])
+  it('collapses a re-emitted artifact_written (same tool_use_id, new seq)', () => {
+    const out = dedupeEvents([
+      ev('artifact_written', { tool_use_id: 'w1', rel_path: 'f.py' }, 1),
+      ev('artifact_written', { tool_use_id: 'w1', rel_path: 'f.py' }, 80),
+    ])
     expect(out).toHaveLength(1)
+  })
+
+  it('keeps two genuine writes to the same path (different tool_use_id)', () => {
+    const out = dedupeEvents([
+      ev('artifact_written', { tool_use_id: 'w1', rel_path: 'f.py' }, 1),
+      ev('artifact_written', { tool_use_id: 'w2', rel_path: 'f.py' }, 2),
+    ])
+    expect(out).toHaveLength(2)
   })
 })
 

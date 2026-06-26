@@ -15,7 +15,7 @@ export function SandboxedFrame({ code, kind }: { code: string; kind: 'html' | 'c
     <div className="my-2 overflow-hidden rounded-md border border-border/60 bg-[#0d1117]">
       <div className="flex items-center justify-between border-b border-border/40 px-3 py-1 text-[10px] text-subtle">
         <span className="font-mono uppercase tracking-wide">{kind} · sandboxed</span>
-        <button type="button" onClick={() => setExpanded((e) => !e)} className="hover:text-fg">
+        <button type="button" aria-expanded={expanded} onClick={() => setExpanded((e) => !e)} className="hover:text-fg">
           {expanded ? 'shrink' : 'expand'}
         </button>
       </div>

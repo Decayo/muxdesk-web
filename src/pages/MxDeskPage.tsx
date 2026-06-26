@@ -23,6 +23,7 @@ import { MxEventStream } from '@/components/muxDesk/MxEventStream'
 import { MxTerminal } from '@/components/muxDesk/MxTerminal'
 import { MxModelPicker } from '@/components/muxDesk/MxModelPicker'
 import { MxStatusBar } from '@/components/muxDesk/MxStatusBar'
+import { dedupeEvents } from '@/lib/eventGroups'
 import { MxHarnessBar } from '@/components/muxDesk/MxHarnessBar'
 import { cn } from '@/lib/utils'
 
@@ -46,7 +47,9 @@ export function MxDeskPage() {
   const active = sessions.find((s) => s.app_session_id === activeId) ?? null
   const events = activeId ? eventsBySession[activeId] ?? [] : []
   const tokenTotal = useMemo(
-    () => events.reduce((sum, e) => sum + (e.event_type === 'assistant_message' ? Number(e.payload.output_tokens) || 0 : 0), 0),
+    // dedupe first: a reconnect replay re-emits assistant messages with fresh seqs, which would
+    // otherwise double-count tokens.
+    () => dedupeEvents(events).reduce((sum, e) => sum + (e.event_type === 'assistant_message' ? Number(e.payload.output_tokens) || 0 : 0), 0),
     [events],
   )
 
@@ -358,6 +361,7 @@ function ViewModeToggle() {
         <button
           key={mode}
           type="button"
+          aria-pressed={viewMode === mode}
           onClick={() => setViewMode(mode)}
           title={mode === 'focus' ? 'Results only — hide thinking' : 'Show every event'}
           className={cn(

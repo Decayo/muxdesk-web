@@ -95,8 +95,10 @@ export function eventSig(e: MxEvent): string {
       return `${e.event_type}:${p.uuid ?? ''}:${txt.length}:${txt.slice(0, 40)}`
     }
     // Other *rendered* events also need stable keys, or a reconnect replay (fresh seqs) double-renders them.
+    // Prefer the originating tool_use_id (unique per write, stable across replays) so two legitimate
+    // writes to the same path aren't collapsed; fall back to rel_path when the backend omits it.
     case 'artifact_written':
-      return `aw:${p.rel_path ?? ''}`
+      return `aw:${p.tool_use_id ?? p.rel_path ?? ''}`
     case 'image':
       return `image:${p.uuid ?? ''}:${typeof p.source === 'string' ? p.source : JSON.stringify(p.source ?? '')}`
     case 'error':

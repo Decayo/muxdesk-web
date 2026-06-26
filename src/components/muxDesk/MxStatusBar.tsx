@@ -10,7 +10,7 @@ export function prettyModel(id: string): string {
 }
 
 function basename(path: string): string {
-  return path.split('/').filter(Boolean).pop() ?? path
+  return path.split(/[/\\]/).filter(Boolean).pop() ?? path
 }
 
 function Sep() {
