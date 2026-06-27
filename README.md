@@ -39,6 +39,14 @@ Assistant messages render through `MxMessage` (react-markdown + remark-gfm). The
 | `html` / `canvas`  | `<iframe sandbox="allow-scripts">` (`SandboxedFrame`) — runs/draws in an opaque origin, no parent/cookie/storage access |
 | anything else      | shiki syntax highlight (`CodeBlock`, github-dark, lazy per-language) |
 
+Sample output — syntax highlight, a rendered mermaid diagram, and an inline diff
+(all via the real `MxMessage` dispatch above):
+
+| | |
+|---|---|
+| ![syntax highlight](docs/assets/render-highlight.png) | ![mermaid diagram](docs/assets/render-mermaid.png) |
+| ![inline diff](docs/assets/render-diff.png) | ![unified/split diff panel](docs/assets/diff-split.png) |
+
 The event stream (`MxEventStream`) folds consecutive tool calls into collapsible
 **WORK LOG** groups; `Edit`/`Write` entries show an inline diff built from the
 tool input. Pure grouping/dedup logic lives in `src/lib/eventGroups.ts`
@@ -52,8 +60,6 @@ paired globally so an interleaved event can't orphan a result.
 > `src/lib/diff.ts` — is pure and unit-tested (GitHub-style run zipping). Worker-
 > virtualized rendering for very large (1000s-of-line) diffs remains a follow-up;
 > the panel scrolls within `max-h-[60vh]`, which is enough for typical agent edits.
->
-> ![unified/split diff](docs/assets/diff-split.png)
 
 The conversation has a **Focus / Full** toggle (Focus hides internal thinking)
 and a stick-to-bottom scroller that follows new content only while you're parked
