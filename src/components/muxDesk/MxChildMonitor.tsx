@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { MxSession } from '@/types/muxDesk'
 import { relaySession } from '@/api/muxDesk'
 import { getSessionLive } from '@/api/nativeAgents'

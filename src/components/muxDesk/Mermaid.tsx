@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 
 // lazy import: mermaid is large, only load on first ```mermaid encounter to avoid slowing initial render
 let _mermaid: Promise<(typeof import('mermaid'))['default']> | null = null
@@ -12,20 +12,18 @@ function getMermaid() {
   return _mermaid
 }
 
-let _seq = 0
-
 /** Render a ```mermaid code block as a diagram (flowchart/sequence/etc); falls back to raw source on parse failure. */
 export function Mermaid({ code }: { code: string }) {
   const [svg, setSvg] = useState('')
   const [failed, setFailed] = useState(false)
-  const idRef = useRef(`mmd-${(_seq += 1)}`)
+  const renderId = `mmd-${useId().replace(/:/g, '')}` // mermaid needs a colon-free DOM id
 
   useEffect(() => {
     let alive = true
     setSvg('')
     setFailed(false)
     getMermaid()
-      .then((mermaid) => mermaid.render(idRef.current, code))
+      .then((mermaid) => mermaid.render(renderId, code))
       .then(({ svg }) => {
         if (alive) setSvg(svg)
       })
@@ -35,7 +33,7 @@ export function Mermaid({ code }: { code: string }) {
     return () => {
       alive = false
     }
-  }, [code])
+  }, [code, renderId])
 
   if (failed) {
     return (

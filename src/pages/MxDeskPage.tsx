@@ -50,7 +50,8 @@ export function MxDeskPage() {
   const [pending, setPending] = useState('')
 
   const active = sessions.find((s) => s.app_session_id === activeId) ?? null
-  const events = activeId ? eventsBySession[activeId] ?? [] : []
+  // Memoized so its identity is stable across renders (else the deps of the memos/effects below churn every render).
+  const events = useMemo(() => (activeId ? eventsBySession[activeId] ?? [] : []), [activeId, eventsBySession])
   const tokenTotal = useMemo(
     // dedupe first: a reconnect replay re-emits assistant messages with fresh seqs, which would
     // otherwise double-count tokens.

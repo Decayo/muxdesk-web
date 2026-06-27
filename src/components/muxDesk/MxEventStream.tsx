@@ -190,6 +190,16 @@ function EventRow({ event, agentsByName }: { event: MxEvent; agentsByName?: Reco
   }
 }
 
+/** Pretty-print a check-in's structured output (JSON), tolerant of non-serializable values. */
+function formatCheckinOutput(value: unknown): string {
+  if (value == null) return ''
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
 /** A bound child reporting in (module 4 · 4c): ⬆ child checkin, ✓/✗ contract validation, expandable output. */
 function CheckinCard({ payload }: { payload: Record<string, unknown> }) {
   const [open, setOpen] = useState(false)
@@ -197,12 +207,7 @@ function CheckinCard({ payload }: { payload: Record<string, unknown> }) {
   const summary = typeof payload.summary === 'string' ? payload.summary : ''
   const errors = Array.isArray(payload.errors) ? (payload.errors as unknown[]).map(String) : []
   const ok = payload.ok !== false && errors.length === 0
-  let output = ''
-  try {
-    output = payload.output != null ? JSON.stringify(payload.output, null, 2) : ''
-  } catch {
-    output = String(payload.output ?? '')
-  }
+  const output = formatCheckinOutput(payload.output)
   return (
     <div className="ml-1 rounded-md border-l-2 border-accent/40 bg-panel/30 px-2 py-1 text-xs">
       <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 text-left">
