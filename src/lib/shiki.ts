@@ -54,9 +54,8 @@ function getHighlighter(): Promise<Highlighter> {
   return highlighterPromise
 }
 
-/** Highlight `code` as `lang` into shiki HTML; unknown languages degrade to plain text (never throws). */
-export async function highlightCode(code: string, lang: string): Promise<string> {
-  const hl = await getHighlighter()
+/** Resolve a fenced/alias language to a loaded shiki id, lazily loading it; unsupported -> 'text'. */
+async function ensureLang(hl: Highlighter, lang: string): Promise<string> {
   let id = ALIAS[lang.toLowerCase()] ?? lang.toLowerCase()
   // shiki ships text/ansi as builtins; everything else must be loaded before use.
   if (id !== 'text' && id !== 'ansi' && !loaded.has(id)) {
@@ -67,5 +66,35 @@ export async function highlightCode(code: string, lang: string): Promise<string>
       id = 'text' // unsupported language -> plain text, no crash
     }
   }
+  return id
+}
+
+/** Highlight `code` as `lang` into shiki HTML; unknown languages degrade to plain text (never throws). */
+export async function highlightCode(code: string, lang: string): Promise<string> {
+  const hl = await getHighlighter()
+  const id = await ensureLang(hl, lang)
   return hl.codeToHtml(code, { lang: id, theme: SHIKI_THEME })
+}
+
+const HTML_ESCAPE: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;' }
+const escapeHtml = (s: string) => s.replace(/[&<>]/g, (c) => HTML_ESCAPE[c])
+
+/**
+ * Highlight `code` into one HTML string per source line (themed token `<span>`s), for row-by-row
+ * layouts like the split diff. Line count matches `code.split('\n')`, so a caller's source-line
+ * indices line up. Never throws — an unsupported language degrades to escaped plain text.
+ */
+export async function highlightToLines(code: string, lang: string): Promise<string[]> {
+  const hl = await getHighlighter()
+  const id = await ensureLang(hl, lang)
+  const { tokens } = hl.codeToTokens(code, { lang: id, theme: SHIKI_THEME })
+  return tokens.map((line) =>
+    line.map((t) => `<span style="color:${t.color ?? 'inherit'}">${escapeHtml(t.content)}</span>`).join(''),
+  )
+}
+
+/** Best-effort shiki language id from a file path's extension (split-diff source highlighting). */
+export function langForFile(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase() ?? ''
+  return ALIAS[ext] ?? ext ?? 'text'
 }
