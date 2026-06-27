@@ -30,6 +30,11 @@ describe('matchCommands', () => {
     expect(matchCommands('zzz')).toEqual([])
   })
 
+  it('matches case-insensitively against the candidate name too (custom uppercase)', () => {
+    const custom = [{ name: 'Deploy', hint: 'ship', source: 'command' as const }]
+    expect(matchCommands('de', custom).map((c) => c.name)).toEqual(['Deploy'])
+  })
+
   it('built-ins are tagged source=builtin', () => {
     expect(SLASH_COMMANDS.every((c) => c.source === 'builtin')).toBe(true)
   })

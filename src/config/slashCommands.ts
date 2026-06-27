@@ -43,5 +43,5 @@ export function slashQuery(text: string): string | null {
 /** Candidates whose name starts with the query (case-insensitive), from the given list. */
 export function matchCommands(query: string, commands: SlashCommand[] = SLASH_COMMANDS): SlashCommand[] {
   const q = query.toLowerCase()
-  return commands.filter((c) => c.name.startsWith(q))
+  return commands.filter((c) => c.name.toLowerCase().startsWith(q))
 }

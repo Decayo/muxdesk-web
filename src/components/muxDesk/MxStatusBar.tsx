@@ -15,8 +15,15 @@ function basename(path: string): string {
 
 /** Compact token count for the context segment: 945000 -> "945k", 1000000 -> "1M". */
 export function fmtCtx(n: number): string {
-  if (n >= 1_000_000) return `${+(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M`
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`
+  if (n >= 1_000) {
+    const k = Math.round(n / 1_000)
+    if (k >= 1_000) {
+      // never render "1000k"; roll over to M
+      const m = n / 1_000_000
+      return Number.isInteger(m) ? `${m}M` : `${m.toFixed(1)}M`
+    }
+    return `${k}k`
+  }
   return String(n)
 }
 

@@ -161,6 +161,7 @@ function SessionItem({
       onDragOver={onDragOver}
       onDragLeave={() => setOver(false)}
       onDrop={onDrop}
+      // Pointer affordance for binding; a keyboard-accessible bind path will land via the planned `/team` command.
       title="drag onto another session to bind it under that one"
       // tree view: indent children, with a guide border for nested rows
       style={depth ? { marginLeft: depth * 12 } : undefined}

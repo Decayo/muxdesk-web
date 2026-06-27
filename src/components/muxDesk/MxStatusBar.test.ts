@@ -25,4 +25,9 @@ describe('fmtCtx', () => {
     expect(fmtCtx(1_500_000)).toBe('1.5M')
     expect(fmtCtx(512)).toBe('512')
   })
+
+  it('rolls over to M instead of rendering 1000k', () => {
+    expect(fmtCtx(999_999)).toBe('1.0M')
+    expect(fmtCtx(999_500)).toBe('1.0M')
+  })
 })
