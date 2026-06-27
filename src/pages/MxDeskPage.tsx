@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   answerSessionAsk,
   cancelSessionAsk,
@@ -20,7 +20,8 @@ import { useMxDeskStream } from '@/hooks/useMxDeskStream'
 import { MxStateBadge } from '@/components/muxDesk/MxStateBadge'
 import { MxChatInput } from '@/components/muxDesk/MxChatInput'
 import { MxEventStream } from '@/components/muxDesk/MxEventStream'
-import { MxTerminal } from '@/components/muxDesk/MxTerminal'
+// Lazy: xterm + addons are heavy and only needed when the Terminal tab is opened (off the chat path).
+const MxTerminal = lazy(() => import('@/components/muxDesk/MxTerminal').then((m) => ({ default: m.MxTerminal })))
 import { MxModelPicker } from '@/components/muxDesk/MxModelPicker'
 import { MxStatusBar } from '@/components/muxDesk/MxStatusBar'
 import { MxChildMonitor } from '@/components/muxDesk/MxChildMonitor'
@@ -201,7 +202,9 @@ export function MxDeskPage() {
             <MxEventStream events={events} state={state} pendingText={pending} sessionId={activeId} agentsByName={agentsByName} />
           </div>
         ) : (
-          <MxTerminal sessionId={activeId} />
+          <Suspense fallback={<div className="p-4 text-sm text-muted">Loading terminal…</div>}>
+            <MxTerminal sessionId={activeId} />
+          </Suspense>
         )}
       </div>
 
