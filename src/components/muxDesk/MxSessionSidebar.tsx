@@ -185,24 +185,25 @@ function BindDialog({
   const [mission, setMission] = useState('')
   const [blocked, setBlocked] = useState<string[]>([])
   const [deliverable, setDeliverable] = useState<string>('none')
+  const [cadence, setCadence] = useState<'on_stop' | 'every_turn' | 'manual'>('on_stop')
   const toggle = (g: string) => setBlocked((b) => (b.includes(g) ? b.filter((x) => x !== g) : [...b, g]))
+
+  const hasContract = mission.trim().length > 0 || blocked.length > 0 || deliverable !== 'none' || cadence !== 'on_stop'
 
   const submit = () => {
     if (!parentId) return
-    const m = mission.trim()
-    const preset = DELIVERABLE_PRESETS.find((p) => p.key === deliverable)
-    if (!m && blocked.length === 0 && !preset?.schema) {
+    if (!hasContract) {
       onConfirm(parentId, undefined) // quick ephemeral bind
       return
     }
+    const preset = DELIVERABLE_PRESETS.find((p) => p.key === deliverable)
     const contract: BindContract = { kind: 'persistent' }
-    if (m) contract.mission = m
+    if (mission.trim()) contract.mission = mission.trim()
     if (blocked.length) contract.guardrails = { blocklist: blocked }
     if (preset?.schema) contract.deliverables = { output_schema: preset.schema }
+    if (cadence !== 'on_stop') contract.checkin = { cadence } // on_stop is the backend default
     onConfirm(parentId, contract)
   }
-
-  const hasContract = mission.trim().length > 0 || blocked.length > 0 || deliverable !== 'none'
   return (
     <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-3" onClick={onCancel}>
       <div className="w-full rounded-md border border-border bg-panel-2 p-3 text-xs" onClick={(e) => e.stopPropagation()}>
@@ -278,6 +279,25 @@ function BindDialog({
                 )}
               >
                 {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-2">
+          <div className="mb-1 text-subtle">check-in cadence:</div>
+          <div className="flex flex-wrap gap-1">
+            {(['on_stop', 'every_turn', 'manual'] as const).map((c) => (
+              <button
+                key={c}
+                type="button"
+                aria-pressed={cadence === c}
+                onClick={() => setCadence(c)}
+                className={cn(
+                  'rounded border px-1.5 py-0.5 font-mono',
+                  cadence === c ? 'border-accent/60 bg-accent/15 text-fg' : 'border-border text-subtle hover:text-fg',
+                )}
+              >
+                {c}
               </button>
             ))}
           </div>
