@@ -31,6 +31,19 @@ export function resumeSession(id: string): Promise<MxSession> {
   return request<MxSession>(`/muxdesk/sessions/${id}/resume`, { method: 'POST' })
 }
 
+/** Bind a session under a parent (session tree). Backend validates + rejects cycles. */
+export function bindSession(id: string, parentSessionId: string): Promise<MxSession> {
+  return request<MxSession>(`/muxdesk/sessions/${id}/bind`, {
+    method: 'POST',
+    body: JSON.stringify({ parent_session_id: parentSessionId }),
+  })
+}
+
+/** Detach a session from its parent. */
+export function unbindSession(id: string): Promise<MxSession> {
+  return request<MxSession>(`/muxdesk/sessions/${id}/unbind`, { method: 'POST' })
+}
+
 export function deleteSession(id: string): Promise<void> {
   return request<void>(`/muxdesk/sessions/${id}`, { method: 'DELETE' })
 }

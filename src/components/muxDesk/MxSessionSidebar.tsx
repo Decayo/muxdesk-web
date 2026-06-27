@@ -1,5 +1,5 @@
-import { useEffect, type MouseEvent } from 'react'
-import { archiveSession, createSession, listSessions, resumeSession } from '@/api/muxDesk'
+import { useEffect, useState, type DragEvent, type MouseEvent } from 'react'
+import { archiveSession, bindSession, createSession, listSessions, resumeSession, unbindSession } from '@/api/muxDesk'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useUiStore, type SidebarView } from '@/stores/uiStore'
 import { buildSessionTree, groupByProject } from '@/lib/sessionViews'
@@ -44,6 +44,25 @@ export function MxSessionSidebar() {
     upsert(session)
     setActive(id)
   }
+  const refresh = () => listSessions().then((r) => setSessions(r.items)).catch(() => undefined)
+  // Drag a session onto another -> bind the dragged one under it (backend validates / rejects cycles).
+  const handleBind = async (childId: string, parentId: string) => {
+    if (childId === parentId) return
+    try {
+      await bindSession(childId, parentId)
+      await refresh()
+    } catch {
+      // backend may be older (no /bind) or reject a cycle (409) — leave the tree unchanged
+    }
+  }
+  const handleUnbind = async (id: string) => {
+    try {
+      await unbindSession(id)
+      await refresh()
+    } catch {
+      // ignore (older backend)
+    }
+  }
 
   const item = (session: MxSession, depth = 0) => (
     <SessionItem
@@ -54,6 +73,8 @@ export function MxSessionSidebar() {
       onSelect={() => setActive(session.app_session_id)}
       onArchive={() => handleArchive(session.app_session_id)}
       onResume={() => handleResume(session.app_session_id)}
+      onBind={(childId) => handleBind(childId, session.app_session_id)}
+      onUnbind={() => handleUnbind(session.app_session_id)}
     />
   )
 
@@ -100,6 +121,8 @@ function SessionItem({
   onSelect,
   onArchive,
   onResume,
+  onBind,
+  onUnbind,
 }: {
   session: MxSession
   active: boolean
@@ -107,19 +130,44 @@ function SessionItem({
   onSelect: () => void
   onArchive: () => void
   onResume: () => void
+  onBind?: (draggedId: string) => void
+  onUnbind?: () => void
 }) {
+  const [over, setOver] = useState(false)
   const stop = (fn: () => void) => (event: MouseEvent) => {
     event.stopPropagation()
     fn()
   }
+  const onDragStart = (e: DragEvent) => {
+    e.dataTransfer.setData('text/plain', session.app_session_id)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  const onDragOver = (e: DragEvent) => {
+    if (!onBind) return
+    e.preventDefault() // allow drop
+    if (!over) setOver(true)
+  }
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault()
+    setOver(false)
+    const dragged = e.dataTransfer.getData('text/plain')
+    if (dragged) onBind?.(dragged)
+  }
   return (
     <div
       onClick={onSelect}
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={() => setOver(false)}
+      onDrop={onDrop}
+      title="drag onto another session to bind it under that one"
       // tree view: indent children, with a guide border for nested rows
       style={depth ? { marginLeft: depth * 12 } : undefined}
       className={cn(
         'group flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5',
         depth ? 'border-l border-border/60' : '',
+        over ? 'ring-1 ring-accent' : '',
         active ? 'bg-panel-2 text-fg' : 'text-muted hover:bg-panel-2',
       )}
     >
@@ -130,6 +178,11 @@ function SessionItem({
         </div>
       </div>
       <div className="hidden gap-2 group-hover:flex">
+        {session.parent_session_id && onUnbind && (
+          <button type="button" onClick={stop(onUnbind)} title="detach from parent" className="text-xs text-muted hover:text-warn">
+            unbind
+          </button>
+        )}
         {session.status === 'archived' ? (
           <button type="button" onClick={stop(onResume)} className="text-xs text-accent-fg hover:underline">
             resume
