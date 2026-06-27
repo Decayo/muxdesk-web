@@ -1,5 +1,5 @@
 import { useEffect, useState, type DragEvent, type MouseEvent } from 'react'
-import { archiveSession, bindSession, createSession, listSessions, resumeSession, unbindSession } from '@/api/muxDesk'
+import { archiveSession, bindSession, createSession, listSessions, resumeSession, unbindSession, type BindContract } from '@/api/muxDesk'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useUiStore, type SidebarView } from '@/stores/uiStore'
 import { buildSessionTree, groupByProject } from '@/lib/sessionViews'
@@ -52,11 +52,10 @@ export function MxSessionSidebar() {
     const child = sessions.find((s) => s.app_session_id === childId)
     if (child) setPendingBind({ child, parent })
   }
-  const confirmBind = async (mission: string) => {
+  const confirmBind = async (contract?: BindContract) => {
     if (!pendingBind) return
     const { child, parent } = pendingBind
     setPendingBind(null)
-    const contract = mission.trim() ? { mission: mission.trim(), kind: 'persistent' as const } : undefined
     try {
       await bindSession(child.app_session_id, parent.app_session_id, contract)
       await refresh()
@@ -131,9 +130,12 @@ export function MxSessionSidebar() {
   )
 }
 
+const COMMON_GUARDRAILS = ['git-push', 'git-merge', 'deploy', 'delete', 'place-trade']
+
 /**
- * Minimal bind wizard (module 4 · 4g): confirm a drag-bind, optionally giving the child a mission
- * (→ a persistent contract). Empty mission = a quick ephemeral bind. Enter confirms, Esc cancels.
+ * Bind wizard (module 4 · 4g): confirm a drag-bind with an optional mission + guardrail blocklist
+ * (→ a persistent contract). No mission and no guardrails = a quick ephemeral bind.
+ * Enter confirms, Esc cancels. Selected guardrails are enforced by the child's PreToolUse hook.
  */
 function BindDialog({
   childTitle,
@@ -143,10 +145,26 @@ function BindDialog({
 }: {
   childTitle: string
   parentTitle: string
-  onConfirm: (mission: string) => void
+  onConfirm: (contract?: BindContract) => void
   onCancel: () => void
 }) {
   const [mission, setMission] = useState('')
+  const [blocked, setBlocked] = useState<string[]>([])
+  const toggle = (g: string) => setBlocked((b) => (b.includes(g) ? b.filter((x) => x !== g) : [...b, g]))
+
+  const submit = () => {
+    const m = mission.trim()
+    if (!m && blocked.length === 0) {
+      onConfirm(undefined) // quick ephemeral bind
+      return
+    }
+    const contract: BindContract = { kind: 'persistent' }
+    if (m) contract.mission = m
+    if (blocked.length) contract.guardrails = { blocklist: blocked }
+    onConfirm(contract)
+  }
+
+  const hasContract = mission.trim().length > 0 || blocked.length > 0
   return (
     <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-3" onClick={onCancel}>
       <div className="w-full rounded-md border border-border bg-panel-2 p-3 text-xs" onClick={(e) => e.stopPropagation()}>
@@ -161,23 +179,38 @@ function BindDialog({
             if (e.key === 'Escape') onCancel()
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()
-              onConfirm(mission)
+              submit()
             }
           }}
           rows={2}
-          placeholder="mission (optional) — leave empty for a quick ephemeral bind"
+          placeholder="mission (optional) — leave empty + no guardrails for a quick ephemeral bind"
           className="w-full resize-none rounded border border-border bg-panel px-2 py-1 text-fg outline-none placeholder:text-subtle focus:border-accent"
         />
+        <div className="mt-2">
+          <div className="mb-1 text-subtle">guardrails (block in the child):</div>
+          <div className="flex flex-wrap gap-1">
+            {COMMON_GUARDRAILS.map((g) => (
+              <button
+                key={g}
+                type="button"
+                aria-pressed={blocked.includes(g)}
+                onClick={() => toggle(g)}
+                className={cn(
+                  'rounded border px-1.5 py-0.5 font-mono',
+                  blocked.includes(g) ? 'border-warn/60 bg-warn/15 text-warn' : 'border-border text-subtle hover:text-fg',
+                )}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="mt-2 flex justify-end gap-2">
           <button type="button" onClick={onCancel} className="rounded px-2 py-1 text-subtle hover:text-fg">
             Cancel
           </button>
-          <button
-            type="button"
-            onClick={() => onConfirm(mission)}
-            className="rounded bg-accent px-3 py-1 font-medium text-white hover:opacity-90"
-          >
-            {mission.trim() ? 'Bind with mission' : 'Bind'}
+          <button type="button" onClick={submit} className="rounded bg-accent px-3 py-1 font-medium text-white hover:opacity-90">
+            {hasContract ? 'Bind with contract' : 'Bind'}
           </button>
         </div>
       </div>
