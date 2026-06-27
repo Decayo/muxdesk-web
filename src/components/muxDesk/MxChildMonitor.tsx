@@ -59,8 +59,8 @@ function ChildRow({ child, onOpen }: { child: MxSession; onOpen: (id: string) =>
     if (!text || sending) return
     setSending(true)
     try {
-      await relaySession(id, text)
-      setRelay('')
+      const r = await relaySession(id, text)
+      if (r.ok) setRelay('') // soft failure (200 {ok:false}) keeps the text for retry
     } catch {
       // older backend without /relay, or session gone — leave the text for retry
     } finally {

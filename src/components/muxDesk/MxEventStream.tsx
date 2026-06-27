@@ -195,8 +195,8 @@ function CheckinCard({ payload }: { payload: Record<string, unknown> }) {
   const [open, setOpen] = useState(false)
   const childId = String(payload.child_session_id ?? '').slice(0, 8) || 'child'
   const summary = typeof payload.summary === 'string' ? payload.summary : ''
-  const ok = payload.ok !== false
   const errors = Array.isArray(payload.errors) ? (payload.errors as unknown[]).map(String) : []
+  const ok = payload.ok !== false && errors.length === 0
   let output = ''
   try {
     output = payload.output != null ? JSON.stringify(payload.output, null, 2) : ''
