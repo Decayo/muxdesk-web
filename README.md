@@ -49,17 +49,59 @@ paired globally so an interleaved event can't orphan a result.
 > Diffs use the shiki "diff" lexer (unified). Split view + worker-virtualized
 > rendering for very large diffs (via `@pierre/diffs`) is a planned follow-up.
 
+The conversation has a **Focus / Full** toggle (Focus hides internal thinking)
+and a stick-to-bottom scroller that follows new content only while you're parked
+near the bottom (it survives async highlight/iframe reflow via a `ResizeObserver`).
+
+## Status bar
+
+A cmux-style segmented bar (`MxStatusBar`) under the conversation:
+
+```
+Sonnet 4.6 │ AUTO · READY │ ctx 16% 32k/200k │ 📁 mux-demo-ws │ ⎇ main~3 │ ⌨ 2 │ Σ 1.2k tok
+```
+
+Front-end-aggregated segments (model / mode·state / cwd / Σ tokens) come from data
+the client already holds; `ctx` (peak context %), `⎇` git branch+dirty, and `⌨`
+shell count are fed by `GET /api/muxdesk/sessions/{id}/status` (polled). All
+backend-fed segments degrade gracefully — they're simply omitted on older backends.
+
+## Command palette
+
+Typing a lone `/cmd` in the input opens a candidate palette (`MxChatInput` +
+`src/config/slashCommands.ts`): prefix-filtered, ↑/↓ + Enter/Tab to accept, Esc to
+dismiss, IME-safe. Candidates are the built-in claude commands merged with the
+session's own `.claude/commands` + `.claude/skills` from
+`GET /api/muxdesk/sessions/{id}/commands` (falls back to built-ins if absent).
+
+## Session tree & bind (module 4)
+
+The sidebar has **Date / Tree / Project** grouping (`MxSessionSidebar` +
+`src/lib/sessionViews.ts`). Drag one session onto another to **bind** it as a child
+(`POST …/bind`; backend validates + rejects cycles); bound rows show an `unbind`
+action. When the active session has children, a **BOUND CHILDREN** monitor
+(`MxChildMonitor`) shows each child's state + live preview with a **relay** box
+(parent → child via `POST …/relay`) and an *open* button. A child's check-in
+(`child_checkin` pushed to the parent's event bus) renders as a card in the parent
+conversation. Every bind/relay/status call degrades gracefully when the backend
+lacks the endpoint.
+
 ## Layout
 
 - `src/components/muxDesk/*` — chat (`MxEventStream`, `MxMessage`), rendering
-  (`CodeBlock`, `CodeDiff`, `WorkLog`, `SandboxedFrame`, `Mermaid`), agent graph
-  (`MxTeamPanel`), structured ask cards (`AskUserQuestionCard`), session sidebar
-  (`MxSessionSidebar`), terminal (`MxTerminal`), model picker, preflight banner.
+  (`CodeBlock`, `CodeDiff`, `WorkLog`, `SandboxedFrame`, `Mermaid`), status bar
+  (`MxStatusBar`), command input (`MxChatInput`), session sidebar
+  (`MxSessionSidebar`), child monitor (`MxChildMonitor`), agent graph
+  (`MxTeamPanel`), structured ask cards (`AskUserQuestionCard`), terminal
+  (`MxTerminal`), model picker, preflight banner.
 - `src/pages/*` — `MxDeskPage`, `MxDeskWorkbench`.
-- `src/lib/*` — pure helpers: `shiki` (highlighter), `diff` (patch build/classify),
-  `eventGroups` (tool grouping + dedup; unit-tested), `format`, `utils`.
-- `src/{stores,hooks,api}` — zustand stores, stream hook (`useMxDeskStream`),
-  terminal hook (`useMxTerminal`), REST client (`api/muxDesk.ts`).
+- `src/lib/*` — pure, unit-tested helpers: `shiki` (highlighter), `diff` (patch
+  build/classify), `eventGroups` (tool grouping + dedup + view mode),
+  `sessionViews` (tree / project / children), `format`, `utils`.
+- `src/config/*` — `slashCommands` (command palette source).
+- `src/{stores,hooks,api}` — zustand stores (`sessionStore`, `transcriptStore`,
+  `uiStore`), stream hook (`useMxDeskStream`), terminal hook (`useMxTerminal`),
+  REST client (`api/muxDesk.ts`).
 
 ## Contract
 
