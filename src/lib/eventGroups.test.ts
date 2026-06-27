@@ -189,4 +189,15 @@ describe('buildRenderItems', () => {
     expect(items).toHaveLength(1)
     expect(items[0].kind).toBe('event')
   })
+
+  it('child_checkin breaks the tool run and renders standalone', () => {
+    const items = buildRenderItems([
+      toolStart('Read', 't1'),
+      toolEnd('t1'),
+      ev('child_checkin', { child_session_id: 'c', ok: true }),
+      toolStart('Bash', 't2'),
+      toolEnd('t2'),
+    ])
+    expect(items.map((i) => i.kind)).toEqual(['tools', 'event', 'tools'])
+  })
 })

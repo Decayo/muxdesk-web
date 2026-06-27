@@ -23,6 +23,7 @@ export const GROUP_BREAKERS = new Set([
   'artifact_written',
   'image',
   'error',
+  'child_checkin', // a bound child reporting in (module 4 · 4c)
 ])
 
 /**

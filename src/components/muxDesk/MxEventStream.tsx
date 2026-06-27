@@ -177,6 +177,8 @@ function EventRow({ event, agentsByName }: { event: MxEvent; agentsByName?: Reco
     }
     case 'tool_end':
       return <Meta label={payload.is_error ? '✗ tool' : '✓ tool'} text="" warn={Boolean(payload.is_error)} />
+    case 'child_checkin':
+      return <CheckinCard payload={payload} />
     case 'artifact_written':
       return <Meta label="📝 written to vault" text={text('rel_path')} ok />
     case 'image':
@@ -186,6 +188,48 @@ function EventRow({ event, agentsByName }: { event: MxEvent; agentsByName?: Reco
     default:
       return null
   }
+}
+
+/** A bound child reporting in (module 4 · 4c): ⬆ child checkin, ✓/✗ contract validation, expandable output. */
+function CheckinCard({ payload }: { payload: Record<string, unknown> }) {
+  const [open, setOpen] = useState(false)
+  const childId = String(payload.child_session_id ?? '').slice(0, 8) || 'child'
+  const summary = typeof payload.summary === 'string' ? payload.summary : ''
+  const ok = payload.ok !== false
+  const errors = Array.isArray(payload.errors) ? (payload.errors as unknown[]).map(String) : []
+  let output = ''
+  try {
+    output = payload.output != null ? JSON.stringify(payload.output, null, 2) : ''
+  } catch {
+    output = String(payload.output ?? '')
+  }
+  return (
+    <div className="ml-1 rounded-md border-l-2 border-accent/40 bg-panel/30 px-2 py-1 text-xs">
+      <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 text-left">
+        <span className="text-accent">⬆ checkin</span>
+        <span className="shrink-0 font-mono text-subtle">{childId}</span>
+        <span className="min-w-0 flex-1 truncate text-muted">{summary}</span>
+        <span className={cn('shrink-0', ok ? 'text-ok' : 'text-warn')}>{ok ? '✓' : `✗ ${errors.length}`}</span>
+        <span className="shrink-0 text-subtle">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="ml-5 mt-1 space-y-1">
+          {errors.length > 0 && (
+            <ul className="list-disc pl-4 text-warn">
+              {errors.map((e, i) => (
+                <li key={i}>{e}</li>
+              ))}
+            </ul>
+          )}
+          {output && (
+            <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded border border-border/40 bg-[#0d1117] p-2 font-mono text-[11.5px] text-[#c9d1d9]">
+              {output}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 /** A run of tool calls: WORK LOG collapsible block when ≥2, a single expandable row otherwise. */
