@@ -132,6 +132,29 @@ export function MxSessionSidebar() {
 
 const COMMON_GUARDRAILS = ['git-push', 'git-merge', 'deploy', 'delete', 'place-trade']
 
+// Preset deliverable shapes (avoids hand-writing a JSON Schema); the child's check-in is validated against it.
+const DELIVERABLE_PRESETS: { key: string; label: string; schema?: Record<string, unknown> }[] = [
+  { key: 'none', label: 'none' },
+  {
+    key: 'summary',
+    label: 'progress summary',
+    schema: { type: 'object', required: ['summary'], properties: { summary: { type: 'string' } } },
+  },
+  {
+    key: 'status',
+    label: 'status + blockers',
+    schema: {
+      type: 'object',
+      required: ['status'],
+      properties: {
+        status: { type: 'string' },
+        blockers: { type: 'array', items: { type: 'string' } },
+        files_changed: { type: 'array', items: { type: 'string' } },
+      },
+    },
+  },
+]
+
 /**
  * Bind wizard (module 4 · 4g): confirm a drag-bind with an optional mission + guardrail blocklist
  * (→ a persistent contract). No mission and no guardrails = a quick ephemeral bind.
@@ -150,21 +173,24 @@ function BindDialog({
 }) {
   const [mission, setMission] = useState('')
   const [blocked, setBlocked] = useState<string[]>([])
+  const [deliverable, setDeliverable] = useState<string>('none')
   const toggle = (g: string) => setBlocked((b) => (b.includes(g) ? b.filter((x) => x !== g) : [...b, g]))
 
   const submit = () => {
     const m = mission.trim()
-    if (!m && blocked.length === 0) {
+    const preset = DELIVERABLE_PRESETS.find((p) => p.key === deliverable)
+    if (!m && blocked.length === 0 && !preset?.schema) {
       onConfirm(undefined) // quick ephemeral bind
       return
     }
     const contract: BindContract = { kind: 'persistent' }
     if (m) contract.mission = m
     if (blocked.length) contract.guardrails = { blocklist: blocked }
+    if (preset?.schema) contract.deliverables = { output_schema: preset.schema }
     onConfirm(contract)
   }
 
-  const hasContract = mission.trim().length > 0 || blocked.length > 0
+  const hasContract = mission.trim().length > 0 || blocked.length > 0 || deliverable !== 'none'
   return (
     <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-3" onClick={onCancel}>
       <div className="w-full rounded-md border border-border bg-panel-2 p-3 text-xs" onClick={(e) => e.stopPropagation()}>
@@ -201,6 +227,25 @@ function BindDialog({
                 )}
               >
                 {g}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-2">
+          <div className="mb-1 text-subtle">deliverable (validated each check-in):</div>
+          <div className="flex flex-wrap gap-1">
+            {DELIVERABLE_PRESETS.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                aria-pressed={deliverable === p.key}
+                onClick={() => setDeliverable(p.key)}
+                className={cn(
+                  'rounded border px-1.5 py-0.5',
+                  deliverable === p.key ? 'border-accent/60 bg-accent/15 text-fg' : 'border-border text-subtle hover:text-fg',
+                )}
+              >
+                {p.label}
               </button>
             ))}
           </div>
