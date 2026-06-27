@@ -38,6 +38,11 @@ export function buildSessionTree(sessions: MxSession[]): TreeRow[] {
   return out
 }
 
+/** Direct children of a session (bound under it). */
+export function childrenOf(sessions: MxSession[], parentId: string): MxSession[] {
+  return sessions.filter((s) => s.parent_session_id === parentId)
+}
+
 const NO_PROJECT = '(no project)'
 
 /** Group sessions by `project` (untagged -> "(no project)", sorted last); group order alphabetical. */

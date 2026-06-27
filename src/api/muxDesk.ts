@@ -44,6 +44,14 @@ export function unbindSession(id: string): Promise<MxSession> {
   return request<MxSession>(`/muxdesk/sessions/${id}/unbind`, { method: 'POST' })
 }
 
+/** Parent -> child: inject a message into a bound session. */
+export function relaySession(id: string, text: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/muxdesk/sessions/${id}/relay`, {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  })
+}
+
 export function deleteSession(id: string): Promise<void> {
   return request<void>(`/muxdesk/sessions/${id}`, { method: 'DELETE' })
 }

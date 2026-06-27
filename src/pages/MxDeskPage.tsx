@@ -23,14 +23,17 @@ import { MxEventStream } from '@/components/muxDesk/MxEventStream'
 import { MxTerminal } from '@/components/muxDesk/MxTerminal'
 import { MxModelPicker } from '@/components/muxDesk/MxModelPicker'
 import { MxStatusBar } from '@/components/muxDesk/MxStatusBar'
+import { MxChildMonitor } from '@/components/muxDesk/MxChildMonitor'
 import { getSessionStatus, type SessionStatus } from '@/api/muxDesk'
 import { dedupeEvents } from '@/lib/eventGroups'
+import { childrenOf } from '@/lib/sessionViews'
 import { MxHarnessBar } from '@/components/muxDesk/MxHarnessBar'
 import { cn } from '@/lib/utils'
 
 export function MxDeskPage() {
   const activeId = useSessionStore((s) => s.activeId)
   const sessions = useSessionStore((s) => s.sessions)
+  const setActive = useSessionStore((s) => s.setActive)
   const selectedModel = useSessionStore((s) => s.selectedModel)
   const setSelectedModel = useSessionStore((s) => s.setSelectedModel)
 
@@ -53,6 +56,7 @@ export function MxDeskPage() {
     () => dedupeEvents(events).reduce((sum, e) => sum + (e.event_type === 'assistant_message' ? Number(e.payload.output_tokens) || 0 : 0), 0),
     [events],
   )
+  const children = activeId ? childrenOf(sessions, activeId) : []
 
   // Fetch Task subagents spawned by this session (name->stats), so Agent tree cards in the conversation show tool uses / tokens / status
   const [subagents, setSubagents] = useState<SubagentNode[]>([])
@@ -201,6 +205,7 @@ export function MxDeskPage() {
         )}
       </div>
 
+      <MxChildMonitor children={children} onOpen={setActive} />
       <div className="flex items-center gap-2 border-t border-border bg-panel px-3 py-1.5">
         <MxModelPicker value={selectedModel} onChange={handleModelChange} />
         <div className="h-3.5 w-px shrink-0 bg-border-strong" />

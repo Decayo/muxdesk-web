@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { MxSession } from '@/types/muxDesk'
-import { buildSessionTree, groupByProject } from './sessionViews'
+import { buildSessionTree, childrenOf, groupByProject } from './sessionViews'
 
 function s(id: string, extra: Partial<MxSession> = {}): MxSession {
   return {
@@ -44,6 +44,14 @@ describe('buildSessionTree', () => {
   it('does not loop on a cycle and still emits every session', () => {
     const rows = buildSessionTree([s('a', { parent_session_id: 'b' }), s('b', { parent_session_id: 'a' })])
     expect(new Set(rows.map((r) => r.session.app_session_id))).toEqual(new Set(['a', 'b']))
+  })
+})
+
+describe('childrenOf', () => {
+  it('returns only the direct children of a parent', () => {
+    const all = [s('p'), s('c1', { parent_session_id: 'p' }), s('c2', { parent_session_id: 'p' }), s('x')]
+    expect(childrenOf(all, 'p').map((c) => c.app_session_id)).toEqual(['c1', 'c2'])
+    expect(childrenOf(all, 'x')).toEqual([])
   })
 })
 
