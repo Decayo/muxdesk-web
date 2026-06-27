@@ -6,9 +6,9 @@ export interface SlashCommand {
 }
 
 /**
- * Built-in claude-code slash commands offered by the input palette.
- * (Enumerating the user's own `.claude/commands` + `.claude/skills` via a backend
- * `/api/muxdesk/commands` endpoint is a planned follow-up — this is the static base set.)
+ * Built-in claude-code slash commands offered by the input palette — the static base set.
+ * The user's own `.claude/commands` + `.claude/skills` are merged in at runtime from
+ * GET /api/muxdesk/sessions/{id}/commands (the palette falls back to this base set if absent).
  */
 export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'model', hint: 'switch the active model' },

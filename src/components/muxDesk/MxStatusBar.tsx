@@ -32,9 +32,9 @@ function Sep() {
 }
 
 /**
- * cmux-style status bar (front-end aggregated). Renders segments from data the client already has:
- * model, mode/state, cwd, accumulated tokens. Backend-fed segments (context %, git branch, shell
- * count) are a planned follow-up via a status endpoint.
+ * cmux-style status bar. Front-end-aggregated segments come from data the client already has
+ * (model, mode/state, cwd, accumulated tokens); context %, git branch and shell count are fed by
+ * GET /api/muxdesk/sessions/{id}/status and are simply omitted on older backends that lack it.
  */
 export function MxStatusBar({
   model,

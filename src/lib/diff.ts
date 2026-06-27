@@ -43,9 +43,10 @@ export function patchBody(patch: string): string {
 }
 
 /**
- * True only when the text carries real per-file headers (`diff --git`, or `---` + `+++`),
- * which @pierre/diffs requires. A bare `@@` hunk (no file header) is NOT rich — it would make
- * PatchDiff throw "must contain exactly 1 file diff", so it falls back to the shiki "diff" lexer.
+ * True only when the text carries real per-file headers (`diff --git`, or `---` + `+++`).
+ * Only these can be parsed into a file + hunks (the split view's `buildSplitRows`) and earn the
+ * collapsible-panel treatment; a bare `@@` hunk (no file header) is NOT rich and renders inline
+ * with the shiki "diff" lexer instead.
  */
 export function isRichPatch(text: string): boolean {
   if (/^diff --git /m.test(text)) return true
