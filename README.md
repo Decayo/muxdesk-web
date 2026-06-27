@@ -77,9 +77,14 @@ session's own `.claude/commands` + `.claude/skills` from
 ## Session tree & bind (module 4)
 
 The sidebar has **Date / Tree / Project** grouping (`MxSessionSidebar` +
-`src/lib/sessionViews.ts`). Drag one session onto another to **bind** it as a child
-(`POST …/bind`; backend validates + rejects cycles); bound rows show an `unbind`
-action. When the active session has children, a **BOUND CHILDREN** monitor
+`src/lib/sessionViews.ts`). **Bind** a session as a child by dragging it onto another, or — for
+keyboard access — via the row's *bind* action (which opens the dialog with a parent dropdown). The
+**bind wizard** (`BindDialog`) assembles a contract: an empty form is a quick *ephemeral* bind;
+otherwise pick any of a **mission**, a **deliverable** shape (preset → `output_schema`, validated
+each check-in), **guardrails** (a blocklist enforced by the child's PreToolUse hook), and a
+**check-in cadence** (`on_stop` / `every_turn` / `manual`). `POST …/bind` validates the contract +
+rejects cycles; bound rows show an `unbind` action. When the active session has children, a
+**BOUND CHILDREN** monitor
 (`MxChildMonitor`) shows each child's state + live preview with a **relay** box
 (parent → child via `POST …/relay`) and an *open* button. A child's check-in
 (`child_checkin` pushed to the parent's event bus) renders as a card in the parent
