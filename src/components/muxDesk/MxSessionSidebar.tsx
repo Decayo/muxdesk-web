@@ -1,6 +1,8 @@
 import { useEffect, type MouseEvent } from 'react'
 import { archiveSession, createSession, listSessions, resumeSession } from '@/api/muxDesk'
 import { useSessionStore } from '@/stores/sessionStore'
+import { useUiStore, type SidebarView } from '@/stores/uiStore'
+import { buildSessionTree, groupByProject } from '@/lib/sessionViews'
 import { cn } from '@/lib/utils'
 import type { MxSession } from '@/types/muxDesk'
 
@@ -14,6 +16,8 @@ export function MxSessionSidebar() {
   const setSessions = useSessionStore((s) => s.setSessions)
   const setActive = useSessionStore((s) => s.setActive)
   const upsert = useSessionStore((s) => s.upsert)
+  const sidebarView = useUiStore((s) => s.sidebarView)
+  const setSidebarView = useUiStore((s) => s.setSidebarView)
 
   useEffect(() => {
     let alive = true
@@ -41,6 +45,18 @@ export function MxSessionSidebar() {
     setActive(id)
   }
 
+  const item = (session: MxSession, depth = 0) => (
+    <SessionItem
+      key={session.app_session_id}
+      session={session}
+      active={session.app_session_id === activeId}
+      depth={depth}
+      onSelect={() => setActive(session.app_session_id)}
+      onArchive={() => handleArchive(session.app_session_id)}
+      onResume={() => handleResume(session.app_session_id)}
+    />
+  )
+
   return (
     <aside className="flex w-64 flex-col border-r border-border bg-panel">
       <div className="flex items-center justify-between border-b border-border p-3">
@@ -53,22 +69,25 @@ export function MxSessionSidebar() {
           + New session
         </button>
       </div>
+      <SidebarViewToggle value={sidebarView} onChange={setSidebarView} />
       <div className="flex-1 overflow-y-auto p-2">
-        {groupByDate(sessions).map(([date, items]) => (
-          <div key={date} className="mb-3">
-            <div className="px-2 py-1 text-xs text-muted">{date}</div>
-            {items.map((session) => (
-              <SessionItem
-                key={session.app_session_id}
-                session={session}
-                active={session.app_session_id === activeId}
-                onSelect={() => setActive(session.app_session_id)}
-                onArchive={() => handleArchive(session.app_session_id)}
-                onResume={() => handleResume(session.app_session_id)}
-              />
-            ))}
-          </div>
-        ))}
+        {sidebarView === 'tree' ? (
+          buildSessionTree(sessions).map(({ session, depth }) => item(session, depth))
+        ) : sidebarView === 'project' ? (
+          groupByProject(sessions).map(([project, items]) => (
+            <div key={project} className="mb-3">
+              <div className="truncate px-2 py-1 text-xs text-muted">📁 {project}</div>
+              {items.map((session) => item(session))}
+            </div>
+          ))
+        ) : (
+          groupByDate(sessions).map(([date, items]) => (
+            <div key={date} className="mb-3">
+              <div className="px-2 py-1 text-xs text-muted">{date}</div>
+              {items.map((session) => item(session))}
+            </div>
+          ))
+        )}
       </div>
     </aside>
   )
@@ -77,12 +96,14 @@ export function MxSessionSidebar() {
 function SessionItem({
   session,
   active,
+  depth = 0,
   onSelect,
   onArchive,
   onResume,
 }: {
   session: MxSession
   active: boolean
+  depth?: number
   onSelect: () => void
   onArchive: () => void
   onResume: () => void
@@ -94,8 +115,11 @@ function SessionItem({
   return (
     <div
       onClick={onSelect}
+      // tree view: indent children, with a guide border for nested rows
+      style={depth ? { marginLeft: depth * 12 } : undefined}
       className={cn(
         'group flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5',
+        depth ? 'border-l border-border/60' : '',
         active ? 'bg-panel-2 text-fg' : 'text-muted hover:bg-panel-2',
       )}
     >
@@ -116,6 +140,33 @@ function SessionItem({
           </button>
         )}
       </div>
+    </div>
+  )
+}
+
+/** Segmented control to switch the sidebar grouping (date / tree / project). */
+function SidebarViewToggle({ value, onChange }: { value: SidebarView; onChange: (v: SidebarView) => void }) {
+  const views: { key: SidebarView; label: string }[] = [
+    { key: 'date', label: 'Date' },
+    { key: 'tree', label: 'Tree' },
+    { key: 'project', label: 'Project' },
+  ]
+  return (
+    <div className="flex gap-0.5 border-b border-border px-2 py-1.5">
+      {views.map((v) => (
+        <button
+          key={v.key}
+          type="button"
+          aria-pressed={value === v.key}
+          onClick={() => onChange(v.key)}
+          className={cn(
+            'flex-1 rounded px-2 py-0.5 text-[11px]',
+            value === v.key ? 'bg-panel-2 text-fg' : 'text-subtle hover:text-fg',
+          )}
+        >
+          {v.label}
+        </button>
+      ))}
     </div>
   )
 }
