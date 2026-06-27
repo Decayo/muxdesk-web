@@ -35,7 +35,7 @@ Assistant messages render through `MxMessage` (react-markdown + remark-gfm). The
 | fenced ` ```lang ` | renders as |
 |--------------------|-----------|
 | `mermaid`          | diagram (`Mermaid`) |
-| `diff`             | two-layer diff (`CodeDiff`) — ≤20 changed lines inline, larger collapses to a `+N −M` summary that opens a scrollable panel |
+| `diff`             | two-layer diff (`CodeDiff`) — ≤20 changed lines inline, larger collapses to a `+N −M` summary that opens a scrollable panel with a **unified / split** toggle |
 | `html` / `canvas`  | `<iframe sandbox="allow-scripts">` (`SandboxedFrame`) — runs/draws in an opaque origin, no parent/cookie/storage access |
 | anything else      | shiki syntax highlight (`CodeBlock`, github-dark, lazy per-language) |
 
@@ -46,8 +46,14 @@ tool input. Pure grouping/dedup logic lives in `src/lib/eventGroups.ts`
 **not** seq, which is a re-emittable emission counter) and tool_start/tool_end are
 paired globally so an interleaved event can't orphan a result.
 
-> Diffs use the shiki "diff" lexer (unified). Split view + worker-virtualized
-> rendering for very large diffs (via `@pierre/diffs`) is a planned follow-up.
+> The expanded diff panel offers **unified** (shiki "diff" lexer, red/green lines)
+> and **split** (side-by-side old | new columns, each highlighted in the *source*
+> language via shiki `codeToTokens`). The split row model — `buildSplitRows` in
+> `src/lib/diff.ts` — is pure and unit-tested (GitHub-style run zipping). Worker-
+> virtualized rendering for very large (1000s-of-line) diffs remains a follow-up;
+> the panel scrolls within `max-h-[60vh]`, which is enough for typical agent edits.
+>
+> ![unified/split diff](docs/assets/diff-split.png)
 
 The conversation has a **Focus / Full** toggle (Focus hides internal thinking)
 and a stick-to-bottom scroller that follows new content only while you're parked
