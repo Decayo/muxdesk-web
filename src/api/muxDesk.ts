@@ -31,12 +31,20 @@ export function resumeSession(id: string): Promise<MxSession> {
   return request<MxSession>(`/muxdesk/sessions/${id}/resume`, { method: 'POST' })
 }
 
-/** Bind a session under a parent (session tree). Backend validates + rejects cycles. */
-export function bindSession(id: string, parentSessionId: string): Promise<MxSession> {
-  return request<MxSession>(`/muxdesk/sessions/${id}/bind`, {
-    method: 'POST',
-    body: JSON.stringify({ parent_session_id: parentSessionId }),
-  })
+/** A bind contract (all fields optional; an ephemeral bind sends none). */
+export interface BindContract {
+  mission?: string
+  kind?: 'persistent' | 'ephemeral'
+  deliverables?: { output_schema?: unknown }
+  checkin?: { cadence?: 'on_stop' | 'every_turn' | 'manual'; format?: string }
+  guardrails?: { blocklist?: string[] }
+}
+
+/** Bind a session under a parent (session tree). Backend validates the contract + rejects cycles. */
+export function bindSession(id: string, parentSessionId: string, contract?: BindContract): Promise<MxSession> {
+  const body: Record<string, unknown> = { parent_session_id: parentSessionId }
+  if (contract && Object.keys(contract).length > 0) body.contract = contract
+  return request<MxSession>(`/muxdesk/sessions/${id}/bind`, { method: 'POST', body: JSON.stringify(body) })
 }
 
 /** Detach a session from its parent. */

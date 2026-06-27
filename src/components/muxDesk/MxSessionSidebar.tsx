@@ -45,11 +45,20 @@ export function MxSessionSidebar() {
     setActive(id)
   }
   const refresh = () => listSessions().then((r) => setSessions(r.items)).catch(() => undefined)
-  // Drag a session onto another -> bind the dragged one under it (backend validates / rejects cycles).
-  const handleBind = async (childId: string, parentId: string) => {
-    if (childId === parentId) return
+  // Drag a session onto another -> open the bind dialog (optional mission contract, else ephemeral).
+  const [pendingBind, setPendingBind] = useState<{ child: MxSession; parent: MxSession } | null>(null)
+  const requestBind = (childId: string, parent: MxSession) => {
+    if (childId === parent.app_session_id) return
+    const child = sessions.find((s) => s.app_session_id === childId)
+    if (child) setPendingBind({ child, parent })
+  }
+  const confirmBind = async (mission: string) => {
+    if (!pendingBind) return
+    const { child, parent } = pendingBind
+    setPendingBind(null)
+    const contract = mission.trim() ? { mission: mission.trim(), kind: 'persistent' as const } : undefined
     try {
-      await bindSession(childId, parentId)
+      await bindSession(child.app_session_id, parent.app_session_id, contract)
       await refresh()
     } catch {
       // backend may be older (no /bind) or reject a cycle (409) — leave the tree unchanged
@@ -73,13 +82,13 @@ export function MxSessionSidebar() {
       onSelect={() => setActive(session.app_session_id)}
       onArchive={() => handleArchive(session.app_session_id)}
       onResume={() => handleResume(session.app_session_id)}
-      onBind={(childId) => handleBind(childId, session.app_session_id)}
+      onBind={(childId) => requestBind(childId, session)}
       onUnbind={() => handleUnbind(session.app_session_id)}
     />
   )
 
   return (
-    <aside className="flex w-64 flex-col border-r border-border bg-panel">
+    <aside className="relative flex w-64 flex-col border-r border-border bg-panel">
       <div className="flex items-center justify-between border-b border-border p-3">
         <span className="text-sm font-semibold text-fg">muxdesk</span>
         <button
@@ -110,7 +119,69 @@ export function MxSessionSidebar() {
           ))
         )}
       </div>
+      {pendingBind && (
+        <BindDialog
+          childTitle={pendingBind.child.title ?? pendingBind.child.app_session_id.slice(0, 8)}
+          parentTitle={pendingBind.parent.title ?? pendingBind.parent.app_session_id.slice(0, 8)}
+          onConfirm={confirmBind}
+          onCancel={() => setPendingBind(null)}
+        />
+      )}
     </aside>
+  )
+}
+
+/**
+ * Minimal bind wizard (module 4 · 4g): confirm a drag-bind, optionally giving the child a mission
+ * (→ a persistent contract). Empty mission = a quick ephemeral bind. Enter confirms, Esc cancels.
+ */
+function BindDialog({
+  childTitle,
+  parentTitle,
+  onConfirm,
+  onCancel,
+}: {
+  childTitle: string
+  parentTitle: string
+  onConfirm: (mission: string) => void
+  onCancel: () => void
+}) {
+  const [mission, setMission] = useState('')
+  return (
+    <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-3" onClick={onCancel}>
+      <div className="w-full rounded-md border border-border bg-panel-2 p-3 text-xs" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-2 text-fg">
+          Bind <span className="font-semibold">{childTitle}</span> under <span className="font-semibold">{parentTitle}</span>
+        </div>
+        <textarea
+          autoFocus
+          value={mission}
+          onChange={(e) => setMission(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') onCancel()
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault()
+              onConfirm(mission)
+            }
+          }}
+          rows={2}
+          placeholder="mission (optional) — leave empty for a quick ephemeral bind"
+          className="w-full resize-none rounded border border-border bg-panel px-2 py-1 text-fg outline-none placeholder:text-subtle focus:border-accent"
+        />
+        <div className="mt-2 flex justify-end gap-2">
+          <button type="button" onClick={onCancel} className="rounded px-2 py-1 text-subtle hover:text-fg">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => onConfirm(mission)}
+            className="rounded bg-accent px-3 py-1 font-medium text-white hover:opacity-90"
+          >
+            {mission.trim() ? 'Bind with mission' : 'Bind'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
