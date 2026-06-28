@@ -10,6 +10,9 @@ export interface MxSession {
   claude_session_id: string | null
   created_at: string | null
   last_event_at: string | null
+  // session tree (module 4); absent on older backends -> treated as flat / ungrouped
+  parent_session_id?: string | null
+  project?: string | null
 }
 
 export interface MxEvent {

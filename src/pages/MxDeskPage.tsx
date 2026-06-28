@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   answerSessionAsk,
   cancelSessionAsk,
@@ -15,23 +15,32 @@ import {
 import { AskUserQuestionCard, type AskQuestion } from '@/components/muxDesk/AskUserQuestionCard'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useTranscriptStore } from '@/stores/transcriptStore'
+import { useUiStore } from '@/stores/uiStore'
 import { useMxDeskStream } from '@/hooks/useMxDeskStream'
 import { MxStateBadge } from '@/components/muxDesk/MxStateBadge'
 import { MxChatInput } from '@/components/muxDesk/MxChatInput'
 import { MxEventStream } from '@/components/muxDesk/MxEventStream'
-import { MxTerminal } from '@/components/muxDesk/MxTerminal'
+// Lazy: xterm + addons are heavy and only needed when the Terminal tab is opened (off the chat path).
+const MxTerminal = lazy(() => import('@/components/muxDesk/MxTerminal').then((m) => ({ default: m.MxTerminal })))
 import { MxModelPicker } from '@/components/muxDesk/MxModelPicker'
+import { MxStatusBar } from '@/components/muxDesk/MxStatusBar'
+import { MxChildMonitor } from '@/components/muxDesk/MxChildMonitor'
+import { getSessionStatus, type SessionStatus } from '@/api/muxDesk'
+import { dedupeEvents } from '@/lib/eventGroups'
+import { childrenOf } from '@/lib/sessionViews'
 import { MxHarnessBar } from '@/components/muxDesk/MxHarnessBar'
 import { cn } from '@/lib/utils'
 
 export function MxDeskPage() {
   const activeId = useSessionStore((s) => s.activeId)
   const sessions = useSessionStore((s) => s.sessions)
+  const setActive = useSessionStore((s) => s.setActive)
   const selectedModel = useSessionStore((s) => s.selectedModel)
   const setSelectedModel = useSessionStore((s) => s.setSelectedModel)
 
   const eventsBySession = useTranscriptStore((s) => s.eventsBySession)
   const state = useTranscriptStore((s) => s.state)
+  const mode = useTranscriptStore((s) => s.mode)
   const blocked = useTranscriptStore((s) => s.blocked)
 
   const { send } = useMxDeskStream(activeId)
@@ -41,7 +50,15 @@ export function MxDeskPage() {
   const [pending, setPending] = useState('')
 
   const active = sessions.find((s) => s.app_session_id === activeId) ?? null
-  const events = activeId ? eventsBySession[activeId] ?? [] : []
+  // Memoized so its identity is stable across renders (else the deps of the memos/effects below churn every render).
+  const events = useMemo(() => (activeId ? eventsBySession[activeId] ?? [] : []), [activeId, eventsBySession])
+  const tokenTotal = useMemo(
+    // dedupe first: a reconnect replay re-emits assistant messages with fresh seqs, which would
+    // otherwise double-count tokens.
+    () => dedupeEvents(events).reduce((sum, e) => sum + (e.event_type === 'assistant_message' ? Number(e.payload.output_tokens) || 0 : 0), 0),
+    [events],
+  )
+  const children = activeId ? childrenOf(sessions, activeId) : []
 
   // Fetch Task subagents spawned by this session (name->stats), so Agent tree cards in the conversation show tool uses / tokens / status
   const [subagents, setSubagents] = useState<SubagentNode[]>([])
@@ -67,6 +84,26 @@ export function MxDeskPage() {
     () => Object.fromEntries(subagents.map((s) => [s.name, s])) as Record<string, SubagentNode>,
     [subagents],
   )
+
+  // Live status-bar segments (git branch/dirty + shells); polled, graceful when the endpoint is absent.
+  const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null)
+  useEffect(() => {
+    if (!activeId) {
+      setSessionStatus(null)
+      return
+    }
+    let alive = true
+    const load = () =>
+      getSessionStatus(activeId)
+        .then((s) => alive && setSessionStatus(s))
+        .catch(() => alive && setSessionStatus(null))
+    load()
+    const id = window.setInterval(load, 5000)
+    return () => {
+      alive = false
+      window.clearInterval(id)
+    }
+  }, [activeId])
 
   // Detect claude TUI interactive menus (/model, AskUserQuestion..., not written to jsonl) -> show clickable options below the conversation
   const [menu, setMenu] = useState<SessionMenu | null>(null)
@@ -157,6 +194,7 @@ export function MxDeskPage() {
         <TabButton active={tab === 'terminal'} onClick={() => setTab('terminal')}>
           Terminal
         </TabButton>
+        {tab === 'chat' && <ViewModeToggle />}
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -165,13 +203,27 @@ export function MxDeskPage() {
             <MxEventStream events={events} state={state} pendingText={pending} sessionId={activeId} agentsByName={agentsByName} />
           </div>
         ) : (
-          <MxTerminal sessionId={activeId} />
+          <Suspense fallback={<div className="p-4 text-sm text-muted">Loading terminal…</div>}>
+            <MxTerminal sessionId={activeId} />
+          </Suspense>
         )}
       </div>
 
-      <div className="flex items-center gap-2 border-t border-border bg-panel px-3 pt-2 text-xs text-muted">
+      <MxChildMonitor children={children} onOpen={setActive} />
+      <div className="flex items-center gap-2 border-t border-border bg-panel px-3 py-1.5">
         <MxModelPicker value={selectedModel} onChange={handleModelChange} />
-        <span>Current model: {actualModel || active.model || 'Starting…'}</span>
+        <div className="h-3.5 w-px shrink-0 bg-border-strong" />
+        <MxStatusBar
+          model={actualModel || active.model}
+          mode={mode}
+          state={state}
+          cwd={active.workspace_path}
+          tokenTotal={tokenTotal}
+          context={sessionStatus?.context}
+          gitBranch={sessionStatus?.git.branch}
+          gitDirty={sessionStatus?.git.dirty}
+          shells={sessionStatus?.shells}
+        />
       </div>
       <StatusHint state={state} blocked={blocked} onTerminal={() => setTab('terminal')} />
       {activeId && ask?.active && ask.reqid ? (
@@ -330,5 +382,30 @@ function TabButton({
     >
       {children}
     </button>
+  )
+}
+
+/** Focus/Full segmented toggle: 'focus' hides internal thinking (results-only), 'full' shows everything. */
+function ViewModeToggle() {
+  const viewMode = useUiStore((s) => s.viewMode)
+  const setViewMode = useUiStore((s) => s.setViewMode)
+  return (
+    <div className="ml-auto flex items-center gap-0.5 rounded-md border border-border/60 p-0.5 text-[11px]">
+      {(['focus', 'full'] as const).map((mode) => (
+        <button
+          key={mode}
+          type="button"
+          aria-pressed={viewMode === mode}
+          onClick={() => setViewMode(mode)}
+          title={mode === 'focus' ? 'Results only — hide thinking' : 'Show every event'}
+          className={cn(
+            'rounded px-2 py-0.5 capitalize',
+            viewMode === mode ? 'bg-panel-2 text-fg' : 'text-subtle hover:text-fg',
+          )}
+        >
+          {mode}
+        </button>
+      ))}
+    </div>
   )
 }

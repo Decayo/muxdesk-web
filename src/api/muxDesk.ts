@@ -31,12 +31,64 @@ export function resumeSession(id: string): Promise<MxSession> {
   return request<MxSession>(`/muxdesk/sessions/${id}/resume`, { method: 'POST' })
 }
 
+/** A bind contract (all fields optional; an ephemeral bind sends none). */
+export interface BindContract {
+  mission?: string
+  kind?: 'persistent' | 'ephemeral'
+  deliverables?: { output_schema?: unknown }
+  checkin?: { cadence?: 'on_stop' | 'every_turn' | 'manual'; format?: string }
+  guardrails?: { blocklist?: string[] }
+}
+
+/** Bind a session under a parent (session tree). Backend validates the contract + rejects cycles. */
+export function bindSession(id: string, parentSessionId: string, contract?: BindContract): Promise<MxSession> {
+  const body: Record<string, unknown> = { parent_session_id: parentSessionId }
+  if (contract && Object.keys(contract).length > 0) body.contract = contract
+  return request<MxSession>(`/muxdesk/sessions/${id}/bind`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+/** Detach a session from its parent. */
+export function unbindSession(id: string): Promise<MxSession> {
+  return request<MxSession>(`/muxdesk/sessions/${id}/unbind`, { method: 'POST' })
+}
+
+/** Parent -> child: inject a message into a bound session. */
+export function relaySession(id: string, text: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/muxdesk/sessions/${id}/relay`, {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  })
+}
+
 export function deleteSession(id: string): Promise<void> {
   return request<void>(`/muxdesk/sessions/${id}`, { method: 'DELETE' })
 }
 
 export function listEvents(id: string, afterSeq = 0): Promise<{ items: MxEvent[] }> {
   return request<{ items: MxEvent[] }>(`/muxdesk/sessions/${id}/events?after_seq=${afterSeq}`)
+}
+
+export interface CommandItem {
+  name: string
+  hint: string
+  source: 'command' | 'skill'
+  scope: 'user' | 'project'
+}
+
+/** Custom slash commands/skills for a session (user ~/.claude + project workspace). */
+export function listSessionCommands(id: string): Promise<{ items: CommandItem[] }> {
+  return request<{ items: CommandItem[] }>(`/muxdesk/sessions/${id}/commands`)
+}
+
+export interface SessionStatus {
+  git: { branch: string | null; dirty: number }
+  shells: number
+  context: { peak: number; window: number; pct: number } | null
+}
+
+/** Live status-bar segments (git branch/dirty + open shells) for a session. */
+export function getSessionStatus(id: string): Promise<SessionStatus> {
+  return request<SessionStatus>(`/muxdesk/sessions/${id}/status`)
 }
 
 /** One runtime dependency check (tmux / claude / login / python). */

@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { MxNativeTranscript } from '@/components/muxDesk/MxNativeTranscript'
 import { MxPreflightBanner } from '@/components/muxDesk/MxPreflightBanner'
 import { MxSessionSidebar } from '@/components/muxDesk/MxSessionSidebar'
-import { MxTeamPanel, type PanelPick } from '@/components/muxDesk/MxTeamPanel'
+import type { PanelPick } from '@/components/muxDesk/MxTeamPanel'
+// Lazy: the agent-graph panel pulls @xyflow/react + dagre — defer them so first chat paint isn't blocked.
+const MxTeamPanel = lazy(() => import('@/components/muxDesk/MxTeamPanel').then((m) => ({ default: m.MxTeamPanel })))
 import { MxDeskPage } from '@/pages/MxDeskPage'
 import { createLead } from '@/api/nativeAgents'
 import { useSessionStore } from '@/stores/sessionStore'
@@ -106,7 +108,9 @@ export function MxDeskWorkbench() {
               )}
             </div>
             <div className="w-[400px] shrink-0 border-l border-border">
-              <MxTeamPanel leadSessionId={leadSessionId} onPick={handlePick} activeKey={activeKey} />
+              <Suspense fallback={<div className="p-4 text-xs text-muted">Loading agent graph…</div>}>
+                <MxTeamPanel leadSessionId={leadSessionId} onPick={handlePick} activeKey={activeKey} />
+              </Suspense>
             </div>
           </div>
         </div>

@@ -1,5 +1,7 @@
-import { useCallback, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { uploadSessionImage } from '@/api/nativeAgents'
+import { listSessionCommands } from '@/api/muxDesk'
+import { matchCommands, mergeCommands, SLASH_COMMANDS, slashQuery, type SlashCommand } from '@/config/slashCommands'
 import { ImageLightbox } from './ImageLightbox'
 
 interface Props {
@@ -35,6 +37,42 @@ export function MxChatInput({ sessionId, disabled, busy, onSend, onStop }: Props
   // IME (fcitx5 + rime) alignment: Enter during composition confirms the candidate, not submit.
   const composingRef = useRef(false)
   const justEndedRef = useRef(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Slash-command palette: open when the whole input is a `/cmd` being typed (and not dismissed via Esc).
+  const [cmdSel, setCmdSel] = useState(0)
+  const [cmdDismissed, setCmdDismissed] = useState(false)
+  // Built-in commands + the session's discovered custom commands/skills (graceful fallback to built-ins).
+  const [commands, setCommands] = useState<SlashCommand[]>(SLASH_COMMANDS)
+  useEffect(() => {
+    if (!sessionId) {
+      setCommands(SLASH_COMMANDS)
+      return
+    }
+    let alive = true
+    listSessionCommands(sessionId)
+      .then((r) => alive && setCommands(mergeCommands(r.items)))
+      .catch(() => alive && setCommands(SLASH_COMMANDS)) // endpoint absent/older backend -> built-ins only
+    return () => {
+      alive = false
+    }
+  }, [sessionId])
+  const query = slashQuery(text)
+  const candidates = query !== null ? matchCommands(query, commands) : []
+  const paletteOpen = query !== null && !cmdDismissed && candidates.length > 0
+  const sel = Math.min(cmdSel, Math.max(0, candidates.length - 1))
+
+  const changeText = (next: string) => {
+    setText(next)
+    setCmdDismissed(false) // typing re-opens / re-filters the palette
+    setCmdSel(0)
+  }
+
+  const acceptCommand = (cmd: SlashCommand) => {
+    setText(`/${cmd.name} `) // trailing space: ready for arguments
+    setCmdDismissed(true)
+    textareaRef.current?.focus()
+  }
 
   const submit = () => {
     const trimmed = text.trim()
@@ -87,13 +125,37 @@ export function MxChatInput({ sessionId, disabled, busy, onSend, onStop }: Props
   }, [])
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    const native = event.nativeEvent as KeyboardEvent & { keyCode?: number; isComposing?: boolean }
+    const composing = composingRef.current || justEndedRef.current || native.isComposing || native.keyCode === 229
+
+    // Command-palette navigation takes priority over send/newline — but never while the IME composes.
+    if (paletteOpen && !composing) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setCmdSel((i) => (i + 1) % candidates.length)
+        return
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setCmdSel((i) => (i - 1 + candidates.length) % candidates.length)
+        return
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault()
+        acceptCommand(candidates[sel])
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setCmdDismissed(true)
+        return
+      }
+    }
+
     if (event.key !== 'Enter') return
     if (event.shiftKey) return // Shift+Enter for newline, let native handle it
-    const native = event.nativeEvent as KeyboardEvent & { keyCode?: number; isComposing?: boolean }
     // Triple gate: local composing flag + event-level isComposing + keyCode 229 fallback + compositionend tail
-    if (composingRef.current || justEndedRef.current || native.isComposing || native.keyCode === 229) {
-      return // hand back to IME, do not submit
-    }
+    if (composing) return // hand back to IME, do not submit
     event.preventDefault()
     submit()
   }
@@ -125,18 +187,44 @@ export function MxChatInput({ sessionId, disabled, busy, onSend, onStop }: Props
       )}
       {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
       <div className="flex items-end gap-2">
-        <textarea
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-          onCompositionStart={onCompositionStart}
-          onCompositionEnd={onCompositionEnd}
-          disabled={disabled}
-          rows={1}
-          placeholder="Type a message — Enter to send, Shift+Enter for newline, paste images…"
-          className="max-h-40 min-h-[40px] flex-1 resize-none rounded-md border border-border bg-panel-2 px-3 py-2 text-sm text-fg outline-none placeholder:text-muted focus:border-accent disabled:opacity-50"
-        />
+        <div className="relative flex-1">
+          {paletteOpen && (
+            <div className="absolute bottom-full left-0 z-10 mb-1 max-h-64 w-full overflow-y-auto rounded-md border border-border bg-panel-2 py-1 shadow-lg">
+              {candidates.map((cmd, i) => (
+                <button
+                  key={cmd.name}
+                  type="button"
+                  // onMouseDown (not onClick) so the textarea doesn't blur before we accept + refocus
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    acceptCommand(cmd)
+                  }}
+                  onMouseEnter={() => setCmdSel(i)}
+                  className={`flex w-full items-baseline gap-2 px-3 py-1 text-left text-sm ${i === sel ? 'bg-accent/20 text-fg' : 'text-muted'}`}
+                >
+                  <span className="font-mono text-accent">/{cmd.name}</span>
+                  <span className="min-w-0 flex-1 truncate text-xs text-subtle">{cmd.hint}</span>
+                  {cmd.source && cmd.source !== 'builtin' && (
+                    <span className="shrink-0 rounded bg-panel px-1 text-[10px] text-subtle">{cmd.source}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(event) => changeText(event.target.value)}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+            onCompositionStart={onCompositionStart}
+            onCompositionEnd={onCompositionEnd}
+            disabled={disabled}
+            rows={1}
+            placeholder="Type a message — / for commands, Enter to send, Shift+Enter for newline…"
+            className="max-h-40 min-h-[40px] w-full resize-none rounded-md border border-border bg-panel-2 px-3 py-2 text-sm text-fg outline-none placeholder:text-muted focus:border-accent disabled:opacity-50"
+          />
+        </div>
         {busy && onStop ? (
           <button
             type="button"

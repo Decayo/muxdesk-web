@@ -1,6 +1,8 @@
-import { useEffect, type MouseEvent } from 'react'
-import { archiveSession, createSession, listSessions, resumeSession } from '@/api/muxDesk'
+import { useEffect, useState, type DragEvent, type MouseEvent } from 'react'
+import { archiveSession, bindSession, createSession, listSessions, resumeSession, unbindSession, type BindContract } from '@/api/muxDesk'
 import { useSessionStore } from '@/stores/sessionStore'
+import { useUiStore, type SidebarView } from '@/stores/uiStore'
+import { buildSessionTree, groupByProject } from '@/lib/sessionViews'
 import { cn } from '@/lib/utils'
 import type { MxSession } from '@/types/muxDesk'
 
@@ -14,6 +16,8 @@ export function MxSessionSidebar() {
   const setSessions = useSessionStore((s) => s.setSessions)
   const setActive = useSessionStore((s) => s.setActive)
   const upsert = useSessionStore((s) => s.upsert)
+  const sidebarView = useUiStore((s) => s.sidebarView)
+  const setSidebarView = useUiStore((s) => s.setSidebarView)
 
   useEffect(() => {
     let alive = true
@@ -40,9 +44,55 @@ export function MxSessionSidebar() {
     upsert(session)
     setActive(id)
   }
+  const refresh = () => listSessions().then((r) => setSessions(r.items)).catch(() => undefined)
+  // Open the bind dialog — via drag (parent fixed) or the row's keyboard "bind" action (parent picked).
+  const [pendingBind, setPendingBind] = useState<{ child: MxSession; parent: MxSession | null } | null>(null)
+  const requestBind = (childId: string, parent: MxSession) => {
+    if (childId === parent.app_session_id) return
+    const child = sessions.find((s) => s.app_session_id === childId)
+    if (child) setPendingBind({ child, parent })
+  }
+  const requestBindPick = (child: MxSession) => setPendingBind({ child, parent: null }) // keyboard path: pick a parent
+  const confirmBind = async (parentId: string, contract?: BindContract) => {
+    if (!pendingBind || !parentId || parentId === pendingBind.child.app_session_id) {
+      setPendingBind(null)
+      return
+    }
+    const childId = pendingBind.child.app_session_id
+    setPendingBind(null)
+    try {
+      await bindSession(childId, parentId, contract)
+      await refresh()
+    } catch {
+      // backend may be older (no /bind) or reject a cycle (409) — leave the tree unchanged
+    }
+  }
+  const handleUnbind = async (id: string) => {
+    try {
+      await unbindSession(id)
+      await refresh()
+    } catch {
+      // ignore (older backend)
+    }
+  }
+
+  const item = (session: MxSession, depth = 0) => (
+    <SessionItem
+      key={session.app_session_id}
+      session={session}
+      active={session.app_session_id === activeId}
+      depth={depth}
+      onSelect={() => setActive(session.app_session_id)}
+      onArchive={() => handleArchive(session.app_session_id)}
+      onResume={() => handleResume(session.app_session_id)}
+      onBind={(childId) => requestBind(childId, session)}
+      onBindStart={() => requestBindPick(session)}
+      onUnbind={() => handleUnbind(session.app_session_id)}
+    />
+  )
 
   return (
-    <aside className="flex w-64 flex-col border-r border-border bg-panel">
+    <aside className="relative flex w-64 flex-col border-r border-border bg-panel">
       <div className="flex items-center justify-between border-b border-border p-3">
         <span className="text-sm font-semibold text-fg">muxdesk</span>
         <button
@@ -53,49 +103,275 @@ export function MxSessionSidebar() {
           + New session
         </button>
       </div>
+      <SidebarViewToggle value={sidebarView} onChange={setSidebarView} />
       <div className="flex-1 overflow-y-auto p-2">
-        {groupByDate(sessions).map(([date, items]) => (
-          <div key={date} className="mb-3">
-            <div className="px-2 py-1 text-xs text-muted">{date}</div>
-            {items.map((session) => (
-              <SessionItem
-                key={session.app_session_id}
-                session={session}
-                active={session.app_session_id === activeId}
-                onSelect={() => setActive(session.app_session_id)}
-                onArchive={() => handleArchive(session.app_session_id)}
-                onResume={() => handleResume(session.app_session_id)}
-              />
+        {sidebarView === 'tree' ? (
+          buildSessionTree(sessions).map(({ session, depth }) => item(session, depth))
+        ) : sidebarView === 'project' ? (
+          groupByProject(sessions).map(([project, items]) => (
+            <div key={project} className="mb-3">
+              <div className="truncate px-2 py-1 text-xs text-muted">📁 {project}</div>
+              {items.map((session) => item(session))}
+            </div>
+          ))
+        ) : (
+          groupByDate(sessions).map(([date, items]) => (
+            <div key={date} className="mb-3">
+              <div className="px-2 py-1 text-xs text-muted">{date}</div>
+              {items.map((session) => item(session))}
+            </div>
+          ))
+        )}
+      </div>
+      {pendingBind && (
+        <BindDialog
+          child={pendingBind.child}
+          fixedParent={pendingBind.parent}
+          candidates={sessions.filter((s) => s.app_session_id !== pendingBind.child.app_session_id)}
+          onConfirm={confirmBind}
+          onCancel={() => setPendingBind(null)}
+        />
+      )}
+    </aside>
+  )
+}
+
+const COMMON_GUARDRAILS = ['git-push', 'git-merge', 'deploy', 'delete', 'place-trade']
+
+// Preset deliverable shapes (avoids hand-writing a JSON Schema); the child's check-in is validated against it.
+const DELIVERABLE_PRESETS: { key: string; label: string; schema?: Record<string, unknown> }[] = [
+  { key: 'none', label: 'none' },
+  {
+    key: 'summary',
+    label: 'progress summary',
+    schema: { type: 'object', required: ['summary'], properties: { summary: { type: 'string' } } },
+  },
+  {
+    key: 'status',
+    label: 'status + blockers',
+    schema: {
+      type: 'object',
+      required: ['status'],
+      properties: {
+        status: { type: 'string' },
+        blockers: { type: 'array', items: { type: 'string' } },
+        files_changed: { type: 'array', items: { type: 'string' } },
+      },
+    },
+  },
+]
+
+/**
+ * Bind wizard (module 4 · 4g): bind `child` under a parent with an optional mission + deliverable
+ * shape + guardrail blocklist (→ a persistent contract); none of those = a quick ephemeral bind.
+ * Opened by drag (parent fixed) or the row's keyboard "bind" action (parent picked from a dropdown,
+ * making the whole flow keyboard-accessible). Enter confirms, Esc cancels.
+ */
+function BindDialog({
+  child,
+  fixedParent,
+  candidates,
+  onConfirm,
+  onCancel,
+}: {
+  child: MxSession
+  fixedParent: MxSession | null
+  candidates: MxSession[]
+  onConfirm: (parentId: string, contract?: BindContract) => void
+  onCancel: () => void
+}) {
+  const childTitle = child.title ?? child.app_session_id.slice(0, 8)
+  const [parentId, setParentId] = useState(fixedParent?.app_session_id ?? candidates[0]?.app_session_id ?? '')
+  const [mission, setMission] = useState('')
+  const [blocked, setBlocked] = useState<string[]>([])
+  const [deliverable, setDeliverable] = useState<string>('none')
+  const [cadence, setCadence] = useState<'on_stop' | 'every_turn' | 'manual'>('on_stop')
+  const toggle = (g: string) => setBlocked((b) => (b.includes(g) ? b.filter((x) => x !== g) : [...b, g]))
+
+  const hasContract = mission.trim().length > 0 || blocked.length > 0 || deliverable !== 'none' || cadence !== 'on_stop'
+
+  const submit = () => {
+    if (!parentId) return
+    if (!hasContract) {
+      onConfirm(parentId, undefined) // quick ephemeral bind
+      return
+    }
+    const preset = DELIVERABLE_PRESETS.find((p) => p.key === deliverable)
+    const contract: BindContract = { kind: 'persistent' }
+    if (mission.trim()) contract.mission = mission.trim()
+    if (blocked.length) contract.guardrails = { blocklist: blocked }
+    if (preset?.schema) contract.deliverables = { output_schema: preset.schema }
+    if (cadence !== 'on_stop') contract.checkin = { cadence } // on_stop is the backend default
+    onConfirm(parentId, contract)
+  }
+  return (
+    <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-3" onClick={onCancel}>
+      <div className="w-full rounded-md border border-border bg-panel-2 p-3 text-xs" onClick={(e) => e.stopPropagation()}>
+        {fixedParent ? (
+          <div className="mb-2 text-fg">
+            Bind <span className="font-semibold">{childTitle}</span> under{' '}
+            <span className="font-semibold">{fixedParent.title ?? fixedParent.app_session_id.slice(0, 8)}</span>
+          </div>
+        ) : (
+          <div className="mb-2 flex items-center gap-1 text-fg">
+            <span>
+              Bind <span className="font-semibold">{childTitle}</span> under
+            </span>
+            <select
+              value={parentId}
+              onChange={(e) => setParentId(e.target.value)}
+              className="min-w-0 flex-1 rounded border border-border bg-panel px-1 py-0.5 text-fg outline-none focus:border-accent"
+            >
+              {candidates.map((c) => (
+                <option key={c.app_session_id} value={c.app_session_id}>
+                  {c.title ?? c.app_session_id.slice(0, 8)}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <textarea
+          autoFocus
+          value={mission}
+          onChange={(e) => setMission(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') onCancel()
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault()
+              submit()
+            }
+          }}
+          rows={2}
+          placeholder="mission (optional) — leave empty + no guardrails for a quick ephemeral bind"
+          className="w-full resize-none rounded border border-border bg-panel px-2 py-1 text-fg outline-none placeholder:text-subtle focus:border-accent"
+        />
+        <div className="mt-2">
+          <div className="mb-1 text-subtle">guardrails (block in the child):</div>
+          <div className="flex flex-wrap gap-1">
+            {COMMON_GUARDRAILS.map((g) => (
+              <button
+                key={g}
+                type="button"
+                aria-pressed={blocked.includes(g)}
+                onClick={() => toggle(g)}
+                className={cn(
+                  'rounded border px-1.5 py-0.5 font-mono',
+                  blocked.includes(g) ? 'border-warn/60 bg-warn/15 text-warn' : 'border-border text-subtle hover:text-fg',
+                )}
+              >
+                {g}
+              </button>
             ))}
           </div>
-        ))}
+        </div>
+        <div className="mt-2">
+          <div className="mb-1 text-subtle">deliverable (validated each check-in):</div>
+          <div className="flex flex-wrap gap-1">
+            {DELIVERABLE_PRESETS.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                aria-pressed={deliverable === p.key}
+                onClick={() => setDeliverable(p.key)}
+                className={cn(
+                  'rounded border px-1.5 py-0.5',
+                  deliverable === p.key ? 'border-accent/60 bg-accent/15 text-fg' : 'border-border text-subtle hover:text-fg',
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-2">
+          <div className="mb-1 text-subtle">check-in cadence:</div>
+          <div className="flex flex-wrap gap-1">
+            {(['on_stop', 'every_turn', 'manual'] as const).map((c) => (
+              <button
+                key={c}
+                type="button"
+                aria-pressed={cadence === c}
+                onClick={() => setCadence(c)}
+                className={cn(
+                  'rounded border px-1.5 py-0.5 font-mono',
+                  cadence === c ? 'border-accent/60 bg-accent/15 text-fg' : 'border-border text-subtle hover:text-fg',
+                )}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-2 flex justify-end gap-2">
+          <button type="button" onClick={onCancel} className="rounded px-2 py-1 text-subtle hover:text-fg">
+            Cancel
+          </button>
+          <button type="button" onClick={submit} className="rounded bg-accent px-3 py-1 font-medium text-white hover:opacity-90">
+            {hasContract ? 'Bind with contract' : 'Bind'}
+          </button>
+        </div>
       </div>
-    </aside>
+    </div>
   )
 }
 
 function SessionItem({
   session,
   active,
+  depth = 0,
   onSelect,
   onArchive,
   onResume,
+  onBind,
+  onBindStart,
+  onUnbind,
 }: {
   session: MxSession
   active: boolean
+  depth?: number
   onSelect: () => void
   onArchive: () => void
   onResume: () => void
+  onBind?: (draggedId: string) => void
+  onBindStart?: () => void
+  onUnbind?: () => void
 }) {
+  const [over, setOver] = useState(false)
   const stop = (fn: () => void) => (event: MouseEvent) => {
     event.stopPropagation()
     fn()
   }
+  const onDragStart = (e: DragEvent) => {
+    e.dataTransfer.setData('text/plain', session.app_session_id)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  const onDragOver = (e: DragEvent) => {
+    if (!onBind) return
+    e.preventDefault() // allow drop
+    if (!over) setOver(true)
+  }
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault()
+    setOver(false)
+    const dragged = e.dataTransfer.getData('text/plain')
+    if (dragged) onBind?.(dragged)
+  }
   return (
     <div
       onClick={onSelect}
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={() => setOver(false)}
+      onDrop={onDrop}
+      // Pointer affordance; the row's "bind" action is the keyboard-accessible path (parent dropdown).
+      title="drag onto another session to bind it under that one"
+      // tree view: indent children, with a guide border for nested rows
+      style={depth ? { marginLeft: depth * 12 } : undefined}
       className={cn(
         'group flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5',
+        depth ? 'border-l border-border/60' : '',
+        over ? 'ring-1 ring-accent' : '',
         active ? 'bg-panel-2 text-fg' : 'text-muted hover:bg-panel-2',
       )}
     >
@@ -106,6 +382,16 @@ function SessionItem({
         </div>
       </div>
       <div className="hidden gap-2 group-hover:flex">
+        {onBindStart && (
+          <button type="button" onClick={stop(onBindStart)} title="bind under another session" className="text-xs text-muted hover:text-accent">
+            bind
+          </button>
+        )}
+        {session.parent_session_id && onUnbind && (
+          <button type="button" onClick={stop(onUnbind)} title="detach from parent" className="text-xs text-muted hover:text-warn">
+            unbind
+          </button>
+        )}
         {session.status === 'archived' ? (
           <button type="button" onClick={stop(onResume)} className="text-xs text-accent-fg hover:underline">
             resume
@@ -116,6 +402,33 @@ function SessionItem({
           </button>
         )}
       </div>
+    </div>
+  )
+}
+
+/** Segmented control to switch the sidebar grouping (date / tree / project). */
+function SidebarViewToggle({ value, onChange }: { value: SidebarView; onChange: (v: SidebarView) => void }) {
+  const views: { key: SidebarView; label: string }[] = [
+    { key: 'date', label: 'Date' },
+    { key: 'tree', label: 'Tree' },
+    { key: 'project', label: 'Project' },
+  ]
+  return (
+    <div className="flex gap-0.5 border-b border-border px-2 py-1.5">
+      {views.map((v) => (
+        <button
+          key={v.key}
+          type="button"
+          aria-pressed={value === v.key}
+          onClick={() => onChange(v.key)}
+          className={cn(
+            'flex-1 rounded px-2 py-0.5 text-[11px]',
+            value === v.key ? 'bg-panel-2 text-fg' : 'text-subtle hover:text-fg',
+          )}
+        >
+          {v.label}
+        </button>
+      ))}
     </div>
   )
 }

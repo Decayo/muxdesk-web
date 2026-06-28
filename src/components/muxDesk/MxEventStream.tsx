@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { fmtClock, fmtTokens } from '@/lib/format'
 import type { MxEvent } from '@/types/muxDesk'
 import { ccImageUrl, getSessionLive, type SubagentNode } from '@/api/nativeAgents'
 import { MxMessage } from './MxMessage'
 import { ImageLightbox } from './ImageLightbox'
+import { WorkLog, ToolEntryRow } from './WorkLog'
+import { ErrorBoundary } from './ErrorBoundary'
+import { applyViewMode, buildRenderItems, ccAskQuestion, dedupeEvents, stripCcAskNoise, type ToolEntry } from '@/lib/eventGroups'
+import { useUiStore } from '@/stores/uiStore'
 
 interface Props {
   events: MxEvent[]
@@ -16,35 +20,29 @@ interface Props {
   agentsByName?: Record<string, SubagentNode>
 }
 
-/**
- * Strip muxdesk-ask question tool noise (fixes misbinding visual clutter):
- * - AskUserQuestion tool_use (always blocked by hook -> ✗ tool): drop the entire pair
- * - Skill(muxdesk-ask) tool_use (detour for loading instructions): drop the entire pair
- * Only keep Bash(scripts/muxdesk-ask) -> EventRow renders as a single "❓ question".
- * Pairs matched by tool_use_id to also drop the corresponding tool_end.
- */
-function stripCcAskNoise(events: MxEvent[]): MxEvent[] {
-  const drop = new Set<string>()
-  for (const e of events) {
-    if (e.event_type !== 'tool_start') continue
-    const id = e.payload?.tool_use_id
-    if (!id) continue
-    const name = String(e.payload?.tool_name ?? '')
-    const input = e.payload?.input as { skill?: string } | undefined
-    if (name === 'AskUserQuestion' || (name === 'Skill' && input?.skill === 'muxdesk-ask')) {
-      drop.add(String(id))
-    }
-  }
-  if (!drop.size) return events
-  return events.filter((e) => {
-    const id = e.payload?.tool_use_id
-    return !(id && drop.has(String(id)))
-  })
-}
-
 export function MxEventStream({ events: rawEvents, state, pendingText, sessionId, agentsByName }: Props) {
-  const events = stripCcAskNoise(rawEvents)
+  const viewMode = useUiStore((s) => s.viewMode)
+  // Memoize the derive pipeline + grouping so the 700ms/1.5s/3s poll re-renders don't redo this work;
+  // recomputes only when the underlying events array or view mode actually change.
+  const events = useMemo(() => applyViewMode(dedupeEvents(stripCcAskNoise(rawEvents)), viewMode), [rawEvents, viewMode])
+  const renderItems = useMemo(() => buildRenderItems(events), [events])
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  // "Stick to bottom" intent. Only a deliberate scroll-up clears it; programmatic scrolls (which only
+  // move downward) and async content growth never do — so following survives reflow during load.
+  const stickRef = useRef(true)
+  const lastTopRef = useRef(0)
+
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const top = el.scrollTop
+    const dist = el.scrollHeight - top - el.clientHeight
+    if (top < lastTopRef.current - 4) stickRef.current = false // user scrolled up -> stop following
+    else if (dist < 160) stickRef.current = true // back near the bottom -> resume following
+    lastTopRef.current = top
+  }, [])
 
   // Live preview polling moved up so live.text is included in scroll deps (auto-scroll to bottom during streaming)
   const [live, setLive] = useState<{ working: boolean; text: string }>({ working: false, text: '' })
@@ -66,10 +64,26 @@ export function MxEventStream({ events: rawEvents, state, pendingText, sessionId
     }
   }, [sessionId])
 
-  // Auto-scroll to bottom: scroll on event count / optimistic input / state / live preview text changes (live.text grows during streaming -> keeps scrolling)
+  // Switching sessions: always jump to the bottom and resume following.
   useEffect(() => {
+    stickRef.current = true
+    lastTopRef.current = 0
     bottomRef.current?.scrollIntoView({ behavior: 'auto' })
-  }, [events.length, pendingText, state, live.text])
+  }, [sessionId])
+
+  // Follow growing content (new events, streaming, async media/highlight reflow) — but only while the
+  // user is parked near the bottom, so reading scrollback isn't yanked away. A ResizeObserver on the
+  // content catches height changes that land after the initial render (shiki, iframes), unlike a
+  // one-shot effect. Mirrors t3code's maintainScrollAtEnd.
+  useEffect(() => {
+    const content = contentRef.current
+    if (!content) return
+    const ro = new ResizeObserver(() => {
+      if (stickRef.current) bottomRef.current?.scrollIntoView({ behavior: 'auto' })
+    })
+    ro.observe(content)
+    return () => ro.disconnect()
+  }, [])
 
   const busy = state === 'SUBMITTING' || state === 'ASSISTANT_STREAMING' || state === 'RUNNING_TOOL'
   // In-turn (inTurn): from submission until "assistant message persisted / turn ended / interrupted" -> show live preview throughout.
@@ -91,19 +105,27 @@ export function MxEventStream({ events: rawEvents, state, pendingText, sessionId
   const inTurn = Boolean(pendingText) || lastUserIdx > lastDoneIdx
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-3">
-      {events.length === 0 && !pendingText && !busy ? (
-        <div className="mt-12 text-center text-sm text-muted">No events yet. Send a message to start the conversation.</div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {events.map((event, index) => (
-            <EventRow key={`${event.seq}-${index}`} event={event} agentsByName={agentsByName} />
-          ))}
-          {pendingText && <Bubble text={pendingText} pending />}
-          <LivePreview live={live} active={inTurn} />
-        </div>
-      )}
-      <div ref={bottomRef} />
+    <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-3">
+      <div ref={contentRef}>
+        {events.length === 0 && !pendingText && !busy ? (
+          <div className="mt-12 text-center text-sm text-muted">No events yet. Send a message to start the conversation.</div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {renderItems.map((item) => (
+              <ErrorBoundary key={item.key}>
+                {item.kind === 'tools' ? (
+                  <WorkLogItem entries={item.entries} />
+                ) : (
+                  <EventRow event={item.event} agentsByName={agentsByName} />
+                )}
+              </ErrorBoundary>
+            ))}
+            {pendingText && <Bubble text={pendingText} pending />}
+            <LivePreview live={live} active={inTurn} />
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
     </div>
   )
 }
@@ -155,6 +177,8 @@ function EventRow({ event, agentsByName }: { event: MxEvent; agentsByName?: Reco
     }
     case 'tool_end':
       return <Meta label={payload.is_error ? '✗ tool' : '✓ tool'} text="" warn={Boolean(payload.is_error)} />
+    case 'child_checkin':
+      return <CheckinCard payload={payload} />
     case 'artifact_written':
       return <Meta label="📝 written to vault" text={text('rel_path')} ok />
     case 'image':
@@ -164,6 +188,59 @@ function EventRow({ event, agentsByName }: { event: MxEvent; agentsByName?: Reco
     default:
       return null
   }
+}
+
+/** Pretty-print a check-in's structured output (JSON), tolerant of non-serializable values. */
+function formatCheckinOutput(value: unknown): string {
+  if (value == null) return ''
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+/** A bound child reporting in (module 4 · 4c): ⬆ child checkin, ✓/✗ contract validation, expandable output. */
+function CheckinCard({ payload }: { payload: Record<string, unknown> }) {
+  const [open, setOpen] = useState(false)
+  const childId = String(payload.child_session_id ?? '').slice(0, 8) || 'child'
+  const summary = typeof payload.summary === 'string' ? payload.summary : ''
+  const errors = Array.isArray(payload.errors) ? (payload.errors as unknown[]).map(String) : []
+  const ok = payload.ok !== false && errors.length === 0
+  const output = formatCheckinOutput(payload.output)
+  return (
+    <div className="ml-1 rounded-md border-l-2 border-accent/40 bg-panel/30 px-2 py-1 text-xs">
+      <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 text-left">
+        <span className="text-accent">⬆ checkin</span>
+        <span className="shrink-0 font-mono text-subtle">{childId}</span>
+        <span className="min-w-0 flex-1 truncate text-muted">{summary}</span>
+        <span className={cn('shrink-0', ok ? 'text-ok' : 'text-warn')}>{ok ? '✓' : `✗ ${errors.length}`}</span>
+        <span className="shrink-0 text-subtle">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="ml-5 mt-1 space-y-1">
+          {errors.length > 0 && (
+            <ul className="list-disc pl-4 text-warn">
+              {errors.map((e, i) => (
+                <li key={i}>{e}</li>
+              ))}
+            </ul>
+          )}
+          {output && (
+            <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded border border-border/40 bg-[#0d1117] p-2 font-mono text-[11.5px] text-[#c9d1d9]">
+              {output}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** A run of tool calls: WORK LOG collapsible block when ≥2, a single expandable row otherwise. */
+function WorkLogItem({ entries }: { entries: ToolEntry[] }) {
+  if (entries.length === 1) return <ToolEntryRow entry={entries[0]} />
+  return <WorkLog entries={entries} />
 }
 
 /** Spawned subagent tree card: ⚙ name, type, desc -- N tools, ~Xk tok, status (synced via hook). */
@@ -351,26 +428,6 @@ function Meta({ label, text, warn, ok }: { label: string; text: string; warn?: b
       {text && <span className="truncate text-muted">{text}</span>}
     </div>
   )
-}
-
-/** Detect muxdesk-ask question: Skill(muxdesk-ask) or Bash(scripts/muxdesk-ask) -> return first question text ('' if not extractable); non-muxdesk-ask -> undefined. */
-function ccAskQuestion(toolName: string, input: unknown): string | undefined {
-  if (!input || typeof input !== 'object') return undefined
-  const o = input as Record<string, unknown>
-  let raw: string | undefined
-  if (toolName === 'Skill' && o.skill === 'muxdesk-ask') {
-    raw = typeof o.args === 'string' ? o.args : undefined
-  } else if (toolName === 'Bash' && typeof o.command === 'string' && /\/muxdesk-ask\s/.test(o.command)) {
-    raw = (o.command.match(/muxdesk-ask\s+'([\s\S]+)'\s*$/) ?? [])[1]
-  } else {
-    return undefined
-  }
-  if (!raw) return ''
-  try {
-    return String((JSON.parse(raw) as { questions?: { question?: string }[] }).questions?.[0]?.question ?? '')
-  } catch {
-    return ''
-  }
 }
 
 function summarize(input: unknown): string {
